@@ -51,11 +51,7 @@ Get to know the people behind the code. Explore our portfolios for projects, exp
   </tr>
 </table>
 
-## Our focus
 
-- 🌐 **Web** — Thoughtful interfaces and full-stack experiences.
-- 📱 **Mobile** — Apps designed for people on the move.
-- ✦ **AI** — Exploring intelligent tools for practical problems.
 
 ## Repository
 
