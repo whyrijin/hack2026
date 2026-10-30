@@ -12,6 +12,8 @@ flowchart LR
   PR --> Security[Security: secret scan]
   Push[Push to main or develop] --> CI
   Push --> Security
+  Queue[Merge queue] --> CI
+  Queue --> Security
   Schedule[Weekly or manual run] --> Security
   CI -. future: add tests and build .-> Gate[Protected branch checks]
   Security --> Gate
@@ -19,8 +21,9 @@ flowchart LR
 ```
 
 - **CI / Workflow lint** checks GitHub Actions files with actionlint. The downloaded Linux binary is versioned and checksum verified; checkout is pinned to a commit. There is no package cache because there are no package dependencies.
-- **Security / Secret scan** uses Gitleaks on push, pull requests, weekly, and manual dispatch. It scans the event-specific commit range (and history on scheduled or manual runs) and fails on findings. The action and checkout are pinned. Fork PRs use the ordinary `pull_request` event with read-only token permissions and no deployment credentials.
-- Concurrent runs for the same PR or branch are cancelled when a newer run starts. Separate push and PR runs can occur when directly pushing a protected branch that is also the source of a PR; ordinary fork feature branches do not trigger the push workflows.
+- **Security / Secret scan** uses the Gitleaks CLI on push, pull requests, merge queues, weekly, and manual dispatch. It scans the history reachable from the checked-out commit and fails on findings, with secrets redacted from logs. The scanner release is checksum verified. Fork PRs use the ordinary `pull_request` event with read-only token permissions and no deployment credentials. A scheduled run checks the default branch only.
+- **Dependabot** proposes weekly updates to GitHub Actions pins. The actionlint and Gitleaks binary versions and SHA-256 checksums must be updated together manually after verifying the upstream release.
+- Concurrent runs for the same event and PR or branch are cancelled when a newer run starts. Separate push and PR runs can occur when directly pushing a protected branch that is also the source of a PR; ordinary fork feature branches do not trigger the push workflows.
 - GitHub Actions logs and check statuses provide failure visibility. Configure GitHub notification preferences and watch the repository to receive notifications; no external notification integration is configured.
 
 ## Branching and protection
@@ -38,7 +41,7 @@ Branch protection is configured on GitHub, not enforced by the workflows alone. 
 
 ## Secrets and environment configuration
 
-No user-provided secrets are currently required for a personal repository. GitHub supplies `GITHUB_TOKEN` automatically with read-only contents permission. Gitleaks' action requires a `GITLEAKS_LICENSE` secret for organization-owned repositories; see the [action documentation](https://github.com/gitleaks/gitleaks-action). Confirm fork PR behavior before moving the repository to an organization, since GitHub does not pass repository secrets to fork PRs. Never add a secret merely to make a fork PR scan pass or switch to privileged execution of fork code.
+No user-provided secrets are currently required. GitHub supplies a token with read-only contents permission for checkout; the Gitleaks CLI does not require an action license or credentials. Fork PRs do not receive repository secrets. Never switch to privileged execution of fork code to make a scan pass.
 
 No application environment variables, GitHub environments, credentials, or deployment secrets have been defined. When a real host is selected, store credentials as environment-scoped GitHub Secrets, use separate staging and production identities with least privilege, and document every required secret and non-secret variable by its actual name. Do not commit `.env` files or credentials.
 
@@ -51,7 +54,7 @@ actionlint -color
 gitleaks git --redact .
 ```
 
-The second command scans locally available Git history, which may differ from a PR's scan range. Neither command runs application tests or a build because none exist. Gitleaks may identify a candidate secret: rotate/revoke exposed credentials immediately, even if the finding is later removed from the current tree. Inspect findings securely and use narrowly scoped exceptions only after review.
+The second command scans history reachable from the current checkout; it may differ from the commit checked out in CI. Neither command runs application tests or a build because none exist. Gitleaks may identify a candidate secret: rotate/revoke exposed credentials immediately, even if the finding is later removed from the current tree. Inspect findings securely and use narrowly scoped exceptions only after review.
 
 ## Adding application CI
 
@@ -73,7 +76,11 @@ Add Docker only if the chosen runtime or host requires it; if added, use a minim
 
 ## Troubleshooting
 
-- **Workflow lint fails:** run `actionlint -color` locally and fix the reported workflow location. If download or checksum verification fails, check release availability and the pinned checksum; do not disable verification.
-- **Secret scan fails:** inspect the protected Actions logs, rotate any exposed credentials, remove the secret from future use, and consider history cleanup. History rewriting alone does not revoke a credential. Gitleaks may report false positives; review its documented allowlist mechanisms.
+- **Workflow lint fails:** run `actionlint -color` locally and fix the reported workflow location. If download or checksum verification fails, check release availability and the pinned checksum against the official release; do not disable verification.
+- **Secret scan fails:** a historical finding remains a failure even after removal from the current tree. Inspect the protected Actions logs, rotate any exposed credentials, remove the secret from future use, and consider history cleanup. History rewriting alone does not revoke a credential. Gitleaks may report false positives; review its documented allowlist mechanisms.
 - **Required check is missing:** confirm the PR targets `main` or `develop`, Actions are enabled, the workflow exists on the relevant branch, and the ruleset uses the actual job check name. New fork PRs may need maintainer approval.
 - **A planned deployment cannot start:** no deployment workflow or target exists yet. Follow the deployment setup above after selecting infrastructure; do not add placeholder credentials or infer a working release from a green baseline check.
+
+## Maintaining pinned tools
+
+Dependabot updates Actions references, not binaries downloaded by shell commands. Periodically check the official [actionlint releases](https://github.com/rhysd/actionlint/releases) and [Gitleaks releases](https://github.com/gitleaks/gitleaks/releases), then update each workflow’s version, URL, and published Linux x64 SHA-256 together in a PR. Run the local checks and review the resulting CI run before merging.
