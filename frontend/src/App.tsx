@@ -12,7 +12,7 @@ import { CheckCircle2, ShieldCheck, Zap } from 'lucide-react'
 const MainScreen: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth()
 
-  // Support state-based switching with hash/path detection fallback
+  // Supports state-based switching with hash/path detection fallback
   const [currentScreen, setCurrentScreen] = useState<'login' | 'signup'>(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.toLowerCase()
