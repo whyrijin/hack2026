@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 | :--- | :--- |
-| **Document Version** | 2.5.0 (Hour 1 Contract Freeze – Final Technical Corrections) |
+| **Document Version** | 2.5.3 (Hour 1 Contract Freeze – Final Technical Corrections) |
 | **Project** | Subscription Management System (Brightloop Software) |
 | **Phase / Milestone** | Hour 1 – Catalog and Pricing Model Contract |
 | **Author** | Aby John (Catalog, Plans, Taxes, Discounts, Payment Terms, Templates & Pricing Engine) |
@@ -22,9 +22,9 @@ Brightloop Software sells subscription software, recurring add-ons, and physical
 4. **Enforced Single Redemption Per Invoice:** Dedicated `DiscountRedemption` model enforcing a unique constraint on `invoice_id` alone, guaranteeing that an invoice applies at most one discount and preventing duplicate reservations.
 5. **Reservation Idempotency & Amount Verification:** In `reserve_discount()`, retries on existing reservations strictly compare the requested `discount_amount` against the persisted `redemption.discount_amount`. Differing amounts raise an `IdempotencyAmountConflictError` (HTTP 409) rather than silently overwriting persisted financial data. Retries remain valid even if the underlying discount rule is deactivated after initial reservation.
 6. **Consistent Lock Hierarchy (Deadlock Prevention):** Across `reserve_discount()`, `consume_discount()`, and `release_discount()`, locks are strictly acquired in the same order: **`DiscountRedemption` (by `invoice_id`) first, then `DiscountRule` (by `discount_rule_id`) second**.
-7. **Explicit HTTP 409 Exception Mapping:** Reservation conflicts and unique-constraint races are cleanly mapped to HTTP 409 at the invoice generation layer, ensuring that aborted PostgreSQL transactions roll back completely before returning error responses.
-8. **Consistent Lifecycle Return Contracts:** All discount lifecycle service methods (`reserve_discount`, `consume_discount`, `release_discount`) consistently return the affected `DiscountRedemption` model instance.
-9. **Discount Limits & Defensive Capping:** Percentage discounts are strictly bounded ($0 < \text{discount\_value} \le 100$). Fixed discounts must be positive and are defensively capped at the eligible gross subtotal by the pricing engine.
+7. **Explicit HTTP 409 Exception Mapping & Transaction Boundaries:** Reservation conflicts and unique-constraint races on `invoice_id` (strictly identified by PostgreSQL SQLSTATE `23505` and exact constraint name `discounts_discountredemption_invoice_id_key`) are caught outside the service's nested savepoint, mapped to `ReservationConflictError`, and propagate out of Abin's outer invoice transaction, ensuring the full outer invoice transaction rolls back completely before an HTTP 409 response is returned.
+8. **Consistent Lifecycle Return Contracts:** All discount lifecycle service methods (`reserve_discount`, `consume_discount`, `release_discount`) consistently return the affected `DiscountRedemption` model instance. Missing redemptions raise `RedemptionNotFoundError` (HTTP 404) rather than silently returning `None`.
+9. **Discount Limits & Defensive Capping:** Percentage discounts are strictly bounded ($0 < \text{discount\_value} \le 100$) and invalid percentages (> 100% or $\le 0$) are rejected with `ValidationError` (silent clamping with `min()`/`max()` is prohibited). Fixed discounts must be positive and are defensively capped at the eligible gross subtotal by the pricing engine.
 10. **Non-Negative Effective Variant Prices:** Negative variant adjustments are permitted only when the resulting effective unit price ($\text{sales\_price} + \text{price\_adjustment}$) is $\ge \text{Decimal('0.00')}$.
 11. **Additive Multi-Tax Architecture & Override Semantics:** Multiple additive percentage taxes supported via Many-to-Many associations on products and plans. Empty template line tax selections inherit parent product taxes, while non-empty selections override them.
 12. **Explicit Serializer/Service Date Range Validation:** Both `Plan` and `DiscountRule` enforce start date $\le$ end date validation in DRF serializers and service methods, rather than relying solely on `Model.clean()`.
@@ -238,7 +238,7 @@ Table: discounts_discountrule
 | `updated_at` | `DateTimeField` | `False / False` | `auto_now` | Auto-updated | Audit modification timestamp. |
 
 > **Discount Limits & Validation Policies:**
-> 1. **Percentage Discounts:** Must satisfy $0 < \text{discount\_value} \le 100$. Values $> 100\%$ are rejected at the serializer/service layer.
+> 1. **Percentage Discounts:** Must satisfy $0 < \text{discount\_value} \le 100$. Values $> 100\%$ or $\le 0\%$ are rejected at the serializer/service layer. Silent conversion or clamping using `min()`/`max()` is strictly forbidden.
 > 2. **Fixed Discounts:** Must satisfy $\text{discount\_value} > 0$. The authoritative pricing engine independently caps applied fixed discounts to the eligible gross subtotal:
 >    $$\text{Applied Discount} = \min(\text{discount\_value}, \text{Eligible Gross Subtotal})$$
 >    Net amounts and totals are never negative.
@@ -250,6 +250,7 @@ Table: discounts_discountrule
 > - 10% discount: **Valid**.
 > - 100% discount: **Valid** (100% free eligible items).
 > - 100.01% discount: **Rejected** (serializer validation error: percentage cannot exceed 100%).
+> - 150% discount: **Rejected** (serializer/service validation error: percentage cannot exceed 100%; values $> 100\%$ are rejected and never silently clamped).
 > - Fixed ₹5,000 discount on ₹3,000 eligible gross: **Valid** (defensively capped at ₹3,000; total = ₹0).
 > - Zero or negative discount value: **Rejected** (minimum value must be $> 0$).
 
@@ -274,8 +275,21 @@ Table: discounts_discountredemption
 | `updated_at` | `DateTimeField` | `False / False` | `auto_now` | Auto-updated | Modification timestamp. |
 
 **Database Constraints & Relationship Architecture:**
-- **Unique Constraint on `invoice_id` Alone:**
-  Enforcing `unique=True` on `invoice_id` guarantees that an invoice can qualify for and apply **at most one discount redemption**. Competing or duplicate redemptions for the same invoice are rejected at the database level. Redundant `db_index=True` is omitted because PostgreSQL automatically creates a unique b-tree index for `unique=True` columns.
+- **Explicit Unique Constraint on `invoice_id` Alone (`discounts_discountredemption_invoice_id_key`):**
+  Enforcing a unique constraint on `invoice_id` guarantees that an invoice can qualify for and apply **at most one discount redemption**. Competing or duplicate redemptions for the same invoice are rejected at the database level.
+  *Explicit Constraint Naming Specification:*
+  To ensure deterministic exception discrimination across environments, the unique constraint on `invoice_id` must have the exact name `discounts_discountredemption_invoice_id_key`:
+  - **Using Django `Meta.constraints`:** Specify an explicitly named `UniqueConstraint`:
+    ```python
+    constraints = [
+        models.UniqueConstraint(
+            fields=['invoice_id'],
+            name='discounts_discountredemption_invoice_id_key'
+        )
+    ]
+    ```
+  - **Using field attribute `unique=True`:** PostgreSQL conventions default to `<table_name>_<column_name>_key` (i.e. `discounts_discountredemption_invoice_id_key`). However, developers must not assume this database-generated name without verifying it directly against the actual migration operations and database schema.
+  Redundant `db_index=True` is omitted because PostgreSQL automatically creates a unique b-tree index for unique constraints.
 - **Cross-App Foreign Key vs. `BigIntegerField` Decision:**
   - *Recommended Approach:* `invoice = OneToOneField('billing.Invoice', on_delete=models.CASCADE, related_name='discount_redemption')` provides referential integrity.
   - *Decoupled Approach (Hackathon Context):* If independent app migrations without circular dependencies are preferred by Rijin, `invoice_id = BigIntegerField(unique=True, null=False)` is used. Invoice existence is validated at the application/service layer via `billing.models.Invoice.objects.filter(id=invoice_id).exists()` prior to redemption creation.
@@ -477,6 +491,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Dict, Any
 from django.db.models import Q, F
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from discounts.models import DiscountRule
 
 class DiscountEligibilityService:
@@ -495,6 +510,8 @@ class DiscountEligibilityService:
           2. Evaluates quota availability (times_used + times_reserved < max_usage_count).
           3. Evaluates minimum purchase amount & minimum purchase quantity thresholds.
           4. Calculates potential saving for each candidate rule.
+             - Percentage discounts strictly enforce 0 < discount_value <= 100 (silent clamping is forbidden).
+             - Fixed discounts must be > 0 and are capped defensively at eligible gross.
           5. Selects the single rule yielding the greatest monetary saving (tie-broken by lowest id).
         """
         eval_date = effective_date or timezone.localdate()
@@ -536,12 +553,20 @@ class DiscountEligibilityService:
 
             # 3. Calculate saving
             if rule.discount_type == 'percentage':
-                # Bounded: 0 < discount_value <= 100
-                percentage = min(Decimal('100.00'), max(Decimal('0.00'), rule.discount_value))
-                saving = (eligible_gross * (percentage / Decimal('100.00'))).quantize(
+                # Enforce strict bounds: 0 < discount_value <= 100 (silent clamping via min/max is strictly forbidden)
+                if not (Decimal('0.00') < rule.discount_value <= Decimal('100.00')):
+                    raise ValidationError(
+                        f"Invalid percentage discount rule ID {rule.id}: value {rule.discount_value}% "
+                        f"is out of bounds. Must satisfy 0 < value <= 100."
+                    )
+                saving = (eligible_gross * (rule.discount_value / Decimal('100.00'))).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
             else:  # fixed
+                if rule.discount_value <= Decimal('0.00'):
+                    raise ValidationError(
+                        f"Invalid fixed discount rule ID {rule.id}: value {rule.discount_value} must be > 0."
+                    )
                 saving = min(rule.discount_value, eligible_gross)
 
             # 4. Tie-breaking comparison: largest saving, lowest id
@@ -955,7 +980,9 @@ sequenceDiagram
     Note over Staff,DB: Step 4: Draft Invoice Cancellation
     Staff->>Billing: Cancel Draft Invoice
     Billing->>Disc: release_discount(discount_rule_id, invoice_id)
-    alt Already RELEASED
+    alt No Existing Redemption
+        Disc-->>Billing: Raise RedemptionNotFoundError (404)
+    else Already RELEASED
         Disc-->>Billing: Return existing DiscountRedemption (Idempotent No-Op)
     else From RESERVED
         Disc->>DB: Lock DiscountRedemption first, verify rule binding
@@ -973,7 +1000,7 @@ sequenceDiagram
 > [!IMPORTANT]
 > **Outer Transaction Ownership (Coordination with Abin):**
 > All discount lifecycle operations must execute within the **same outer database transaction (`transaction.atomic()`) as the invoice state transition** managed by Abin:
-> - **Invoice Generation (Draft):** Creating the `Invoice` in `billing` and calling `reserve_discount()` must occur inside the same transaction block. If quota validation fails or saving the invoice errors, the transaction rolls back cleanly, preventing phantom reservations.
+> - **Invoice Generation (Draft):** Creating the `Invoice` in `billing` and calling `reserve_discount()` must occur inside the same outer transaction block. If quota validation fails or saving the invoice errors, the full outer transaction rolls back cleanly, preventing phantom reservations.
 > - **Invoice Confirmation:** Updating `Invoice.status = 'CONFIRMED'` and calling `consume_discount()` must be wrapped in the same transaction block.
 > - **Draft Invoice Cancellation:** Updating `Invoice.status = 'CANCELLED'` and calling `release_discount()` must be wrapped in the same transaction block.
 
@@ -983,7 +1010,6 @@ sequenceDiagram
 
 ```python
 from decimal import Decimal
-from typing import Optional
 from django.db import transaction, IntegrityError
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework import status
@@ -999,9 +1025,40 @@ class IdempotencyAmountConflictError(APIException):
     default_detail = "Idempotency conflict: requested discount amount does not match persisted reservation amount."
     default_code = "idempotency_amount_conflict"
 
+class RedemptionNotFoundError(APIException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "No discount redemption exists for the specified invoice."
+    default_code = "redemption_not_found"
+
 class DiscountLifecycleService:
-    @staticmethod
-    def reserve_discount(discount_rule_id: int, invoice_id: int, discount_amount: Decimal) -> DiscountRedemption:
+    @classmethod
+    def _is_invoice_unique_violation(cls, exc: IntegrityError) -> bool:
+        """
+        Strictly determines whether an IntegrityError was caused by a concurrent
+        unique constraint violation on DiscountRedemption.invoice_id in PostgreSQL / psycopg 3.
+
+        Strict matching rules:
+          1. Inspects exc.__cause__.
+          2. Requires SQLSTATE exactly '23505' (UniqueViolation).
+          3. Requires diag.constraint_name exactly equal to 'discounts_discountredemption_invoice_id_key'.
+          4. Returns False if cause, SQLSTATE, diagnostic info, or exact constraint name does not match.
+          5. No string-based fallbacks or partial matching ('invoice_id' in name) are permitted.
+        """
+        cause = getattr(exc, "__cause__", None)
+        if cause is None:
+            return False
+
+        sqlstate = getattr(cause, "sqlstate", None)
+        diag = getattr(cause, "diag", None)
+        constraint_name = getattr(diag, "constraint_name", None)
+
+        return (
+            sqlstate == "23505"
+            and constraint_name == "discounts_discountredemption_invoice_id_key"
+        )
+
+    @classmethod
+    def reserve_discount(cls, discount_rule_id: int, invoice_id: int, discount_amount: Decimal) -> DiscountRedemption:
         """
         Genuinely idempotent reservation:
           1. Lock order: Always locks DiscountRedemption (by invoice_id) FIRST.
@@ -1018,58 +1075,81 @@ class DiscountLifecycleService:
              - Creates DiscountRedemption(status='RESERVED', invoice_id=invoice_id).
              - Atomically increments rule.times_reserved += 1.
              - Returns newly created DiscountRedemption instance.
+          4. Precise IntegrityError handling & Transaction Boundaries:
+             - The service's inner atomic block creates a nested savepoint inside Abin's outer invoice transaction.
+             - When an IntegrityError occurs, Django rolls back the service-level savepoint upon exiting the inner block.
+             - The service catches IntegrityError strictly OUTSIDE its own inner atomic block.
+             - Maps ONLY the exact unique constraint violation (SQLSTATE '23505' and exact name 'discounts_discountredemption_invoice_id_key') to ReservationConflictError.
+             - Re-raises all unrelated database integrity errors (FK, NOT NULL, check constraints) unchanged without string fallbacks.
+             - The mapped ReservationConflictError propagates out of Abin's outer invoice transaction, causing the entire invoice transaction to roll back completely before the invoice-level handler returns HTTP 409.
         """
-        with transaction.atomic():
-            # Lock order 1: DiscountRedemption by invoice_id
-            redemption = DiscountRedemption.objects.select_for_update().filter(
-                invoice_id=invoice_id
-            ).first()
+        try:
+            with transaction.atomic():
+                # Lock order 1: DiscountRedemption by invoice_id
+                redemption = DiscountRedemption.objects.select_for_update().filter(
+                    invoice_id=invoice_id
+                ).first()
 
-            if redemption:
-                if redemption.discount_rule_id != discount_rule_id:
+                if redemption:
+                    if redemption.discount_rule_id != discount_rule_id:
+                        raise ReservationConflictError(
+                            f"Reservation conflict for invoice {invoice_id}: already bound to discount rule "
+                            f"ID {redemption.discount_rule_id}, conflicting with requested rule ID {discount_rule_id}."
+                        )
+
+                    if redemption.status == 'RESERVED':
+                        # Enforce amount consistency: Retries must use persisted redemption amount
+                        if redemption.discount_amount != discount_amount:
+                            raise IdempotencyAmountConflictError(
+                                f"Idempotency conflict for invoice {invoice_id}: existing reservation for rule "
+                                f"{discount_rule_id} holds amount {redemption.discount_amount}, but retry requested {discount_amount}."
+                            )
+                        return redemption  # Idempotent retry: valid matching rule and persisted amount
+
                     raise ReservationConflictError(
-                        f"Reservation conflict for invoice {invoice_id}: already bound to discount rule "
-                        f"ID {redemption.discount_rule_id}, conflicting with requested rule ID {discount_rule_id}."
+                        f"Invoice {invoice_id} already has a terminal discount redemption in state '{redemption.status}'."
                     )
 
-                if redemption.status == 'RESERVED':
-                    # Enforce amount consistency: Retries must use persisted redemption amount
-                    if redemption.discount_amount != discount_amount:
-                        raise IdempotencyAmountConflictError(
-                            f"Idempotency conflict for invoice {invoice_id}: existing reservation for rule "
-                            f"{discount_rule_id} holds amount {redemption.discount_amount}, but retry requested {discount_amount}."
-                        )
-                    return redemption  # Idempotent retry: valid matching rule and persisted amount
+                # First-time reservation: Lock order 2: DiscountRule by ID (must be active)
+                try:
+                    rule = DiscountRule.objects.select_for_update().get(id=discount_rule_id, is_active=True)
+                except DiscountRule.DoesNotExist:
+                    raise ValidationError(f"Discount rule ID {discount_rule_id} is inactive or does not exist.")
 
-                raise ReservationConflictError(
-                    f"Invoice {invoice_id} already has a terminal discount redemption in state '{redemption.status}'."
+                if rule.max_usage_count is not None and (rule.times_used + rule.times_reserved) >= rule.max_usage_count:
+                    raise ValidationError(f"Discount rule '{rule.name}' quota has been exhausted.")
+
+                redemption = DiscountRedemption.objects.create(
+                    discount_rule=rule,
+                    invoice_id=invoice_id,
+                    status='RESERVED',
+                    discount_amount=discount_amount
                 )
 
-            # First-time reservation: Lock order 2: DiscountRule by ID (must be active)
-            try:
-                rule = DiscountRule.objects.select_for_update().get(id=discount_rule_id, is_active=True)
-            except DiscountRule.DoesNotExist:
-                raise ValidationError(f"Discount rule ID {discount_rule_id} is inactive or does not exist.")
+                rule.times_reserved += 1
+                rule.save(update_fields=['times_reserved', 'updated_at'])
+                return redemption
 
-            if rule.max_usage_count is not None and (rule.times_used + rule.times_reserved) >= rule.max_usage_count:
-                raise ValidationError(f"Discount rule '{rule.name}' quota has been exhausted.")
-
-            redemption = DiscountRedemption.objects.create(
-                discount_rule=rule,
-                invoice_id=invoice_id,
-                status='RESERVED',
-                discount_amount=discount_amount
-            )
-
-            rule.times_reserved += 1
-            rule.save(update_fields=['times_reserved', 'updated_at'])
-            return redemption
+        except IntegrityError as exc:
+            # Django rolls back the service-level savepoint when the inner atomic block exits.
+            # Catching occurs outside the service's own atomic block.
+            # ONLY map the exact unique constraint violation on invoice_id to ReservationConflictError.
+            if cls._is_invoice_unique_violation(exc):
+                # Raising ReservationConflictError propagates out of Abin's outer invoice transaction,
+                # ensuring the full invoice transaction rolls back completely before HTTP 409 is returned.
+                raise ReservationConflictError(
+                    f"Concurrent reservation race condition on invoice ID {invoice_id}: another transaction "
+                    f"created a redemption record first. Outer invoice transaction will roll back completely."
+                ) from exc
+            # Re-raise unrelated IntegrityErrors unchanged (e.g. FK violations, NOT NULL constraints, check constraints)
+            raise
 
     @staticmethod
     def consume_discount(discount_rule_id: int, invoice_id: int) -> DiscountRedemption:
         """
         Genuinely idempotent consumption upon invoice confirmation:
           - Lock order 1: Locks DiscountRedemption first.
+          - Raises RedemptionNotFoundError if no redemption exists for invoice_id.
           - Verifies redemption.discount_rule_id == discount_rule_id; raises ValidationError if mismatched.
           - If status is 'CONSUMED': Idempotent no-op. Returns existing DiscountRedemption.
           - If status is 'RESERVED':
@@ -1081,9 +1161,14 @@ class DiscountLifecycleService:
         """
         with transaction.atomic():
             # Lock order 1: DiscountRedemption first
-            redemption = DiscountRedemption.objects.select_for_update().get(
-                invoice_id=invoice_id
-            )
+            try:
+                redemption = DiscountRedemption.objects.select_for_update().get(
+                    invoice_id=invoice_id
+                )
+            except DiscountRedemption.DoesNotExist:
+                raise RedemptionNotFoundError(
+                    f"Cannot consume discount: no redemption record exists for invoice ID {invoice_id}."
+                )
 
             # Strict rule integrity check: Verify redemption belongs to supplied rule
             if redemption.discount_rule_id != discount_rule_id:
@@ -1116,11 +1201,11 @@ class DiscountLifecycleService:
             return redemption
 
     @staticmethod
-    def release_discount(discount_rule_id: int, invoice_id: int) -> Optional[DiscountRedemption]:
+    def release_discount(discount_rule_id: int, invoice_id: int) -> DiscountRedemption:
         """
         Genuinely idempotent release when a Draft invoice is cancelled:
           - Lock order 1: Locks DiscountRedemption first.
-          - If no redemption exists: Returns None (no-op).
+          - Raises RedemptionNotFoundError if no redemption exists for invoice_id (never silently returns None).
           - Verifies redemption.discount_rule_id == discount_rule_id; raises ValidationError if mismatched.
           - If status is 'RELEASED': Idempotent no-op. Returns existing DiscountRedemption.
           - If status is 'CONSUMED': Confirmed invoice cancellation retains consumed usage. Returns redemption.
@@ -1133,12 +1218,14 @@ class DiscountLifecycleService:
         """
         with transaction.atomic():
             # Lock order 1: DiscountRedemption first
-            redemption = DiscountRedemption.objects.select_for_update().filter(
-                invoice_id=invoice_id
-            ).first()
-
-            if not redemption:
-                return None  # Nothing to release
+            try:
+                redemption = DiscountRedemption.objects.select_for_update().get(
+                    invoice_id=invoice_id
+                )
+            except DiscountRedemption.DoesNotExist:
+                raise RedemptionNotFoundError(
+                    f"Cannot release discount: no redemption record exists for invoice ID {invoice_id}."
+                )
 
             # Strict rule integrity check: Verify redemption belongs to supplied rule
             if redemption.discount_rule_id != discount_rule_id:
@@ -1176,21 +1263,86 @@ class DiscountLifecycleService:
 ### 8.2. Concurrent Reservation Conflict Handling & Exception Mapping
 
 When two competing background jobs or requests attempt to reserve discounts for the same `invoice_id` concurrently (e.g. parallel Celery worker tasks processing draft invoices):
-1. **Database Constraint Guard:** The database-level `unique=True` constraint on `DiscountRedemption.invoice_id` prevents duplicate insertion.
+
+1. **Database Constraint Guard:** The database-level `unique=True` constraint on `DiscountRedemption.invoice_id` (`discounts_discountredemption_invoice_id_key`) prevents duplicate insertion.
 2. **Atomic Rollback Guarantee:** If Thread 1 commits a reservation for Rule A, Thread 2's attempt to insert for Rule B triggers a database `IntegrityError`.
-3. **PostgreSQL Transaction Safety:**
-   In PostgreSQL, when an `IntegrityError` occurs, the current transaction is placed in an aborted state (`current transaction is aborted, commands ignored until end of transaction block`). **The application must never catch `IntegrityError` inside an open transaction block and attempt further database queries.**
-   Instead, Abin's outer `with transaction.atomic():` block aborts and rolls back completely. The exception is caught at the outer service/view layer and mapped to `ReservationConflictError` (HTTP 409).
-4. **Zero Partial Updates:** Rolling back the outer transaction guarantees that:
+3. **PostgreSQL Transaction Safety & Error Isolation (Nested Savepoints vs. Outer Transaction):**
+   In PostgreSQL, when an `IntegrityError` occurs, the current transaction/savepoint is immediately placed in an aborted state:
+   ```text
+   ERROR: current transaction is aborted, commands ignored until end of transaction block
+   ```
+   **The application must NEVER catch `IntegrityError` inside an open transaction block and attempt further database queries.** Any query attempted on a connection in the aborted state will raise `TransactionManagementError`.
+
+   The contract accurately distinguishes between two transaction boundaries:
+   - **Service-Level Nested Atomic Block (Savepoint):** The service's own `with transaction.atomic():` inside `reserve_discount()` acts as a nested savepoint when invoked within Abin's outer invoice transaction. When an `IntegrityError` occurs, Django rolls back this service-level savepoint upon exiting the inner block. The service catches the exception strictly outside its own atomic block.
+   - **Outer Invoice Transaction (Abin):** The service validates the exception using `_is_invoice_unique_violation()`. If it matches the exact `discounts_discountredemption_invoice_id_key` constraint, it raises `ReservationConflictError`. This mapped exception then propagates out of Abin's outer `with transaction.atomic():` block, triggering a **complete rollback of the entire invoice transaction** in PostgreSQL.
+   - **Unrelated Errors Re-Raised Unchanged:** Unrelated database errors are re-raised unchanged, also triggering full outer transaction rollback, but propagating as unhandled database errors (HTTP 500) rather than being misclassified as reservation conflicts.
+
+4. **Precise Constraint Discrimination (Strict Exact Matching):**
+   `django.db.IntegrityError` is a broad base exception wrapping multiple distinct database conditions:
+   - Unique constraint violations (`SQLSTATE 23505`, `UniqueViolation`)
+   - Foreign key constraint failures (`SQLSTATE 23503`, `ForeignKeyViolation`)
+   - Null value violations (`SQLSTATE 23502`, `NotNullViolation`)
+   - Check constraint failures (`SQLSTATE 23514`, `CheckViolation`)
+
+   **Rule:** **ONLY** the unique constraint violation on `DiscountRedemption.invoice_id` with SQLSTATE `23505` and exact constraint name `discounts_discountredemption_invoice_id_key` may be mapped to `ReservationConflictError`. All other database integrity errors (such as missing foreign keys, null constraint bugs, check violations, or unique violations on other tables/fields) are **re-raised unchanged** to propagate as internal errors (HTTP 500) or validation errors.
+
+   **Strict Identification in PostgreSQL / psycopg 3:**
+   The service inspects `exc.__cause__` with zero string-based fallback:
+   - Driver SQLSTATE must strictly equal `'23505'` (`psycopg.errors.UniqueViolation`).
+   - The diagnostic record `exc.__cause__.diag.constraint_name` must strictly equal `'discounts_discountredemption_invoice_id_key'`.
+   - Partial matching (such as `'invoice_id' in constraint_name`) and string-based error message inspection are strictly forbidden.
+   - If `exc.__cause__`, `sqlstate`, `diag`, or `constraint_name` is missing or mismatched, `_is_invoice_unique_violation()` returns `False`, causing the exception to be re-raised immediately and unchanged.
+
+5. **Invoice-Level Exception Handling (Outside Outer Atomic Block):**
+   Only after the outer invoice transaction has fully rolled back should the invoice-level exception handler catch the mapped exception and return HTTP 409. Exception handling is placed **strictly outside Abin's outer `transaction.atomic()` block**:
+   ```python
+   # In billing/views.py (Invoice generation view managed by Abin)
+   try:
+       with transaction.atomic():
+           invoice = Invoice.objects.create(subscription=sub, status='DRAFT')
+           if selected_discount:
+               # reserve_discount executes within this outer transaction.
+               # If a uniqueness conflict occurs:
+               # 1. Django rolls back the service-level savepoint when the inner block exits.
+               # 2. reserve_discount catches IntegrityError outside its own atomic block.
+               # 3. reserve_discount raises ReservationConflictError.
+               # 4. ReservationConflictError propagates out of this outer block,
+               #    causing Django to roll back the ENTIRE outer invoice transaction.
+               DiscountLifecycleService.reserve_discount(
+                   discount_rule_id=selected_discount.id,
+                   invoice_id=invoice.id,
+                   discount_amount=calculated_saving
+               )
+           # Additional line creation and business logic...
+   except (ReservationConflictError, IdempotencyAmountConflictError) as exc:
+       # The outer invoice transaction has now completely rolled back.
+       # Zero partial state: no invoice, no lines, no counter increments.
+       return Response(
+           {
+               "error": exc.default_code,
+               "message": str(exc.detail),
+               "details": {"invoice_id": invoice.id if 'invoice' in locals() else None}
+           },
+           status=status.HTTP_409_CONFLICT
+       )
+   except IntegrityError as exc:
+       # Unrelated database error: outer transaction rolled back; propagate/log as 500
+       logger.critical(f"Unrelated database integrity error during invoice generation: {exc}")
+       raise
+   ```
+
+6. **Zero Partial Updates:** Rolling back the outer invoice transaction guarantees that:
    - No `DiscountRule.times_reserved` counter is incremented.
    - No orphan redemption record is created.
    - The `billing.Invoice` record is not saved in an inconsistent state.
-5. **Controlled REST API Error Response:**
+
+7. **Controlled REST API Error Response:**
    At the invoice generation endpoint (`POST /api/v1/invoices/`, owned by `billing`), reservation conflicts return HTTP `409 Conflict`:
    ```json
    {
      "error": "reservation_conflict",
-     "message": "A discount reservation already exists for invoice ID 42. Conflicting transaction was rolled back.",
+     "message": "A discount reservation already exists for invoice ID 42. Conflicting invoice transaction was rolled back.",
      "details": {
        "invoice_id": 42
      }
@@ -1221,9 +1373,12 @@ When two competing background jobs or requests attempt to reserve discounts for 
 
 ### 10.2. Deliverables for Abin (Backend / Quotations, Subscriptions & Invoicing)
 - **Authoritative Pricing Engine:** `calculate_price(...)` function for subscription quote creation and invoice generation.
-- **Discount Services:** `DiscountEligibilityService.find_best_qualifying_discount(...)` and `DiscountLifecycleService` methods (`reserve_discount`, `consume_discount`, `release_discount`) for invoice state machines.
+- **Discount Services:** `DiscountEligibilityService.find_best_qualifying_discount(...)` and `DiscountLifecycleService` methods (`reserve_discount`, `consume_discount`, `release_discount`) for invoice state machines. All lifecycle methods return `DiscountRedemption` consistently (never `None`); missing records raise `RedemptionNotFoundError` (HTTP 404).
 - **Outer Transaction Coordination:** Abin wraps invoice status transitions and discount lifecycle invocations in the same outer `transaction.atomic()` transaction.
-- **Exception Handling:** Abin's invoice generation view maps `ReservationConflictError` and `IdempotencyAmountConflictError` to HTTP 409 Conflict.
+- **Exception Handling & Error Isolation:** Abin's invoice generation view catches exceptions strictly **outside** the outer `transaction.atomic()` block after complete rollback of the full invoice transaction:
+  - `reserve_discount()` catches `IntegrityError` outside its own nested savepoint block, validates the exact constraint, and raises `ReservationConflictError`.
+  - When `ReservationConflictError` escapes Abin's outer transaction, Django rolls back the full invoice transaction. Only then does Abin's outer handler catch it and return HTTP 409 Conflict.
+  - All unrelated database `IntegrityError`s (foreign keys, null violations, check constraints, or differing unique constraints) are re-raised unchanged without string fallbacks, ensuring they are not misclassified as reservation conflicts.
 - **Snapshot Requirements:** Abin's `SubscriptionLine` and `InvoiceLine` models must snapshot:
   - `unit_sales_price`
   - `effective_unit_price`
@@ -1268,13 +1423,13 @@ The following design decisions require formal team sign-off before model migrati
 - [x] Additive percentage taxes formalized via ManyToMany relationships, applied post-discount.
 - [x] TemplateLine tax override semantics explicitly documented: empty inherits, non-empty overrides, zero-tax requires explicit rule.
 - [x] Location-specific tax logic excluded from MVP scope.
-- [x] Discount rules specified with percentage bounds ($0 < \text{value} \le 100$) and defensive capping for fixed discounts. Cross-app `products.Product` M2M verified.
-- [x] Dedicated `DiscountRedemption` model specified with unique constraint on `invoice_id` alone (redundant `db_index` removed).
+- [x] Discount rules specified with percentage bounds ($0 < \text{value} \le 100$, rejecting invalid rules like 150% without silent clamping) and defensive capping for fixed discounts. Cross-app `products.Product` M2M verified.
+- [x] Dedicated `DiscountRedemption` model specified with explicit unique constraint on `invoice_id` alone (`discounts_discountredemption_invoice_id_key`, redundant `db_index` removed).
 - [x] Reservation idempotency enforced: differing requested amount vs. persisted amount raises `IdempotencyAmountConflictError` (HTTP 409).
 - [x] Reservation retries work for existing reservations even after discount rule deactivation; new reservations reject inactive rules.
 - [x] Deadlock-free locking hierarchy documented consistently across all lifecycle methods (`DiscountRedemption` first, then `DiscountRule`).
-- [x] Lifecycle methods consistently return `DiscountRedemption` model instances.
-- [x] Concurrent reservation conflict documented with complete atomic rollback and explicit HTTP 409 mapping.
+- [x] Lifecycle methods consistently return `DiscountRedemption` model instances (no `Optional`, no silent `None`, missing redemptions raise `RedemptionNotFoundError`).
+- [x] Concurrent reservation conflict documented with clear transaction boundaries: nested savepoint rollback at service layer, full outer invoice transaction rollback, strict exact constraint discrimination (only SQLSTATE `23505` with exact name `discounts_discountredemption_invoice_id_key` maps to HTTP 409; no string fallbacks; all other DB errors re-raised unchanged), and invoice-level exception handling strictly outside the outer transaction.
 - [x] Preview API error contract clarified: read-only endpoint does not document reservation 409 errors.
 - [x] Separation of concerns established: `DiscountEligibilityService` (DB queries, `timezone.localdate()`, `chargeable_quantity_map`, `F`, `ROUND_HALF_UP`, `DiscountRule`) vs. `calculate_price` (pure engine).
 - [x] Clear scope distinctions established between product-scoped and subscription-scoped discounts.
