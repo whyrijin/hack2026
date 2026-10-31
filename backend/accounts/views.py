@@ -13,6 +13,12 @@ from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from customers.models import Customer
+from customers.serializers import CustomerSerializer
+from rest_framework import serializers
+from rest_framework.authentication import SessionAuthentication
+from django.middleware.csrf import get_token
+from django.utils.crypto import constant_time_compare
+from accounts.authentication import password_stamp
 
 
 def _user_payload(user):
@@ -27,6 +33,7 @@ def _user_payload(user):
         'is_staff': user.is_staff,
         'is_superuser': user.is_superuser,
         'is_active': user.is_active,
+        'customer': CustomerSerializer(user.customer_profile).data if hasattr(user, 'customer_profile') else None,
     }
 
 
@@ -48,12 +55,14 @@ def _with_refresh_cookie(response, token, remember_me=False):
 def _issue_tokens(user, remember_me=False):
     refresh = RefreshToken.for_user(user)
     refresh['remember_me'] = bool(remember_me)
+    refresh['password_stamp'] = password_stamp(user)
     response = Response({'access_token': str(refresh.access_token), 'user': _user_payload(user)})
     return _with_refresh_cookie(response, refresh, remember_me)
 
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         email = str(request.data.get('email', '')).strip().lower()
@@ -62,11 +71,13 @@ class LoginView(APIView):
         authenticated = authenticate(request, username=user.get_username(), password=password) if user else None
         if authenticated is None:
             return Response({'detail': 'Invalid email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+        get_token(request._request)
         return _issue_tokens(authenticated, bool(request.data.get('remember_me', False)))
 
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @transaction.atomic
     def post(self, request):
@@ -100,13 +111,16 @@ class RegisterView(APIView):
                 Customer.objects.create(user=user, name=full_name[:200], email=email)
         except IntegrityError:
             return Response({'email': ['An account with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+        get_token(request._request)
         return _issue_tokens(user, bool(request.data.get('remember_me', False)))
 
 
 class RefreshView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
+        SessionAuthentication().enforce_csrf(request)
         raw_token = request.COOKIES.get('refresh_token')
         if not raw_token:
             return Response({'detail': 'Refresh session has expired. Sign in again.'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -115,18 +129,23 @@ class RefreshView(APIView):
             user = get_user_model().objects.get(pk=refresh['user_id'], is_active=True)
         except (TokenError, KeyError, get_user_model().DoesNotExist):
             return Response({'detail': 'Refresh session has expired. Sign in again.'}, status=status.HTTP_401_UNAUTHORIZED)
+        if not constant_time_compare(refresh.get('password_stamp', ''), password_stamp(user)):
+            return Response({'detail': 'Your password changed. Sign in again.'}, status=401)
         remember_me = bool(refresh.get('remember_me', False))
         refresh.blacklist()
         replacement = RefreshToken.for_user(user)
         replacement['remember_me'] = remember_me
+        replacement['password_stamp'] = password_stamp(user)
         response = Response({'access_token': str(replacement.access_token), 'user': _user_payload(user)})
         return _with_refresh_cookie(response, replacement, remember_me)
 
 
 class LogoutView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
+        SessionAuthentication().enforce_csrf(request)
         raw_token = request.COOKIES.get('refresh_token')
         if raw_token:
             try:
@@ -143,3 +162,40 @@ class CurrentUserView(APIView):
 
     def get(self, request):
         return Response(_user_payload(request.user))
+
+
+    @transaction.atomic
+    def patch(self, request):
+        allowed = {'full_name', 'company', 'phone', 'billing_address'}
+        unknown = set(request.data) - allowed
+        if unknown:
+            raise serializers.ValidationError({key: 'This field is not editable.' for key in unknown})
+        user = get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        name = request.data.get('full_name')
+        if name is not None:
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 200:
+                raise serializers.ValidationError({'full_name': 'Enter a name of 1 to 200 characters.'})
+            first, _, last = name.strip().partition(' ')
+            if len(first) > 150 or len(last) > 150:
+                raise serializers.ValidationError({'full_name': 'Each name part must be at most 150 characters.'})
+            user.first_name, user.last_name = first, last
+            user.save(update_fields=['first_name', 'last_name'])
+        customer = Customer.objects.select_for_update().filter(user=user).first()
+        profile_data = {key: value for key, value in request.data.items() if key != 'full_name'}
+        if name is not None:
+            profile_data['name'] = name.strip()
+        if customer:
+            serializer = CustomerSerializer(customer, data=profile_data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        elif profile_data.keys() - {'name'}:
+            raise serializers.ValidationError({'customer': 'This account has no customer profile.'})
+        return Response(_user_payload(user))
+
+
+class CsrfView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({'csrfToken': get_token(request._request)})

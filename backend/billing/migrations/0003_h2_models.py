@@ -2,6 +2,7 @@
 import uuid
 
 from django.db import migrations, models
+from config import migration_compat
 import django.db.models.deletion
 from django.db.models import Count
 
@@ -148,7 +149,7 @@ class Migration(migrations.Migration):
             name="invoice_number",
             field=models.CharField(editable=False, max_length=32, unique=True),
         ),
-        migrations.RemoveConstraint(
+        migration_compat.RemoveConstraint(
             model_name="invoice",
             name="inv_sub_period_uq",
         ),

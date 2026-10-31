@@ -1,5 +1,3 @@
-export type CustomerStatus = 'active' | 'pending' | 'inactive' | 'churned'
-
 export interface BillingAddress {
   line1?: string
   city?: string
@@ -9,39 +7,22 @@ export interface BillingAddress {
 }
 
 export interface Customer {
-  id: string
+  id: string | number
   name: string
   email: string
   phone: string
   company: string
-  status: CustomerStatus
-  plan: string
-  mrr: number
-  currency: string
   created_at: string
-  billing_address: BillingAddress
+  billing_address: BillingAddress | string
   notes?: string
 }
 
-export interface CreateCustomerPayload {
-  name: string
-  email: string
-  phone: string
-  company: string
-  status?: CustomerStatus
-  plan?: string
-  mrr?: number
-  currency?: string
-  billing_address?: BillingAddress
-  notes?: string
-}
-
-export interface UpdateCustomerPayload extends Partial<CreateCustomerPayload> {}
+export type CreateCustomerPayload = Omit<Customer, 'id' | 'created_at'>
+export type UpdateCustomerPayload = Partial<CreateCustomerPayload>
 
 export interface CustomerFilters {
   search: string
-  status: string
-  sortBy: 'name' | 'created_at' | 'mrr'
+  sortBy: 'name' | 'created_at'
   sortOrder: 'asc' | 'desc'
   page: number
   limit: number
@@ -54,4 +35,3 @@ export interface PaginatedCustomers {
   totalPages: number
   limit: number
 }
-

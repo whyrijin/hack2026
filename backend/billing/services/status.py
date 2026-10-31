@@ -1,8 +1,10 @@
 """Validated invoice status transitions."""
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from billing.models import Invoice, InvoiceStatus
@@ -34,6 +36,20 @@ def transition_invoice_status(invoice_id, new_status):
         raise InvalidInvoiceTransition(f"Cannot move invoice from {invoice.status} to {new_status}.")
     if new_status == InvoiceStatus.CONFIRMED and not invoice.lines.exists():
         raise InvalidInvoiceTransition("An invoice needs at least one line before it can be confirmed.")
+    if new_status == InvoiceStatus.CONFIRMED:
+        totals = invoice.lines.aggregate(
+            subtotal=Sum("gross_amount"), discount_total=Sum("discount_amount"),
+            tax_total=Sum("tax_amount"), total=Sum("total_amount"),
+        )
+        if any(totals[field] != getattr(invoice, field) for field in totals):
+            raise InvalidInvoiceTransition("Invoice totals must reconcile with its lines before confirmation.")
+        if invoice.total != invoice.subtotal - invoice.discount_total + invoice.tax_total:
+            raise InvalidInvoiceTransition("Invoice totals do not reconcile.")
+    paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    if new_status == InvoiceStatus.PAID and (paid != invoice.total or not invoice.payments.exists()):
+        raise InvalidInvoiceTransition("An invoice can only be marked paid after its balance has been received.")
+    if new_status == InvoiceStatus.CANCELLED and paid:
+        raise InvalidInvoiceTransition("An invoice with received payments cannot be cancelled.")
 
     now = timezone.now()
     invoice.status = new_status

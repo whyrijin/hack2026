@@ -1,4 +1,5 @@
 from django.db import migrations, models
+from config import migration_compat
 
 
 class Migration(migrations.Migration):
@@ -8,7 +9,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(
+        migration_compat.RemoveConstraint(
             model_name="invoice",
             name="inv_sub_period_uq",
         ),
