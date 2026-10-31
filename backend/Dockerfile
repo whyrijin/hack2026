@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 libgdk-pixbuf-2.0-0 \
     fonts-dejavu-core && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app && useradd --system --gid app --home-dir /app app
+ENV XDG_CACHE_HOME=/tmp/app-cache
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=app:app . .
