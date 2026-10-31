@@ -6,7 +6,14 @@ from decimal import Decimal
 
 from rest_framework.exceptions import ValidationError
 
-from products.services.pricing import calculate_price
+from discounts.models import DiscountRule
+from discounts.services import (
+    DiscountQuotaExhausted,
+    DiscountService,
+    DiscountUnavailable,
+    invoice_cycle_quote_id,
+)
+from products.services.catalog_adapter import calculate_price
 
 
 def _next_cycle_start(start: date, cadence: str) -> date:
@@ -44,7 +51,7 @@ def _subscription_plan(subscription):
         "base_price": subscription.plan_base_price_snapshot
         if subscription.plan_base_price_snapshot is not None
         else plan.base_price,
-        "minimum_quantity": plan.minimum_quantity,
+        "minimum_quantity": subscription.minimum_quantity_snapshot,
         "tax_rates": taxes,
     }
 
@@ -115,9 +122,24 @@ def price_subscription_period(subscription, period_start: date, period_end: date
             raise ValidationError(
                 f"Partial billing cycles are not supported for {plan['billing_cadence']} plans."
             )
-    return calculate_price(
-        plan=plan,
-        lines=_subscription_lines(subscription),
-        discount_to_apply=None,
-        effective_date=period_start,
-    )
+    lines = _subscription_lines(subscription)
+    quote_id = invoice_cycle_quote_id(subscription.pk, period_start)
+    excluded_rule_ids = set()
+    while True:
+        pricing = calculate_price(
+            plan=plan,
+            lines=lines,
+            effective_date=period_start,
+            exclude_discount_ids=excluded_rule_ids,
+        )
+        applied = pricing.get("discount_applied")
+        rule_id = applied.get("rule_id") if applied else None
+        if not rule_id:
+            return pricing
+        try:
+            rule = DiscountRule.objects.get(pk=rule_id)
+            DiscountService.reserve(rule, quote_id)
+        except (DiscountQuotaExhausted, DiscountUnavailable, DiscountRule.DoesNotExist):
+            excluded_rule_ids.add(str(rule_id))
+            continue
+        return pricing

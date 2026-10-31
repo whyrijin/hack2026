@@ -1,6 +1,7 @@
 from decimal import Decimal, InvalidOperation
 from datetime import date, timedelta
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.exceptions import ObjectDoesNotExist
 from django.conf import settings
 from django.db import transaction
@@ -18,6 +19,7 @@ from products.models import Product, ProductVariant
 from quotations.models import QuoteTemplate
 from .models import Subscription, SubscriptionEvent, SubscriptionLine
 from .services import add_billing_period, allowed_actions, renew, transition
+from notifications.services import EmailQueueError, queue_email
 
 
 class IntegrationUnavailable(APIException):
@@ -349,6 +351,10 @@ class SubscriptionListCreateView(APIView):
         lines = _price_input(request.data, template)
         _validate_requested_lines(lines, plan.minimum_quantity)
         pricing = _pricing(plan, customer, lines, start_date)
+        plan_tax_rate = sum(
+            (tax.percentage_rate for tax in plan.taxes.filter(is_active=True)),
+            Decimal('0.00'),
+        )
         try:
             default_term = getattr(getattr(template, 'payment_term', None), 'days_until_due', None)
             if default_term is None:
@@ -367,6 +373,8 @@ class SubscriptionListCreateView(APIView):
             payment_term_days=term,
             currency=pricing.get('currency', 'INR'),
             base_price_snapshot=plan.base_price,
+            plan_base_price_snapshot=plan.base_price,
+            plan_tax_rate_snapshot=plan_tax_rate,
             minimum_quantity_snapshot=plan.minimum_quantity,
             allow_pause_snapshot=plan.allow_pause,
             allow_early_close_snapshot=plan.allow_early_closure,
@@ -449,6 +457,32 @@ class SubscriptionActionView(APIView):
         if action == 'renew':
             renewed = renew(pk, request.user)
             return Response(_serialize(renewed), status=status.HTTP_201_CREATED)
+        if action == 'send':
+            try:
+                subscription = _subscription_queryset(request).get(pk=pk)
+            except Subscription.DoesNotExist:
+                raise NotFound('Subscription not found.')
+            if subscription.status != Subscription.Status.QUOTATION:
+                raise ValidationError({'status': 'Only an open quotation can be sent.'})
+            if subscription.quote_valid_until and subscription.quote_valid_until < timezone.localdate():
+                raise ValidationError({'code': 'QUOTE_EXPIRED', 'message': 'This quotation has expired.'})
+            customer = subscription.customer
+            if not customer or not customer.email:
+                raise ValidationError({'customer': 'The customer needs an email address before the quotation can be sent.'})
+            try:
+                result = queue_email(
+                    'subscription_quote', customer.email,
+                    {'customer_name': customer.name, 'subscription_number': subscription.number,
+                     'plan_name': subscription.plan.name, 'currency': subscription.currency,
+                     'total': str(subscription.total),
+                     'valid_until': subscription.quote_valid_until.isoformat() if subscription.quote_valid_until else ''},
+                    f'subscription:{subscription.pk}:quote:{subscription.quote_valid_until}',
+                )
+            except (EmailQueueError, DjangoValidationError, ValueError) as exc:
+                raise ValidationError({'email': str(exc)})
+            from notifications.models import EmailOutbox
+            email = EmailOutbox.objects.get(pk=result.email_id)
+            return Response({'email_id': str(email.pk), 'status': email.status, 'recipient': email.recipient}, status=status.HTTP_202_ACCEPTED)
         try:
             sub = transition(pk, action, actor=request.user, reason=request.data.get('reason', ''))
         except Subscription.DoesNotExist:

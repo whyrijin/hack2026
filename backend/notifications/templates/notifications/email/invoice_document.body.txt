@@ -1,0 +1,7 @@
+Hello {{ customer_name }},
+
+Your invoice {{ invoice_number }} for {{ currency }} {{ total }} is attached.
+
+Please keep this message for your records.
+
+BrightLoop Software

@@ -3,11 +3,11 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import DecimalField, F, OuterRef, Subquery, Sum, Value
+from django.db.models import DecimalField, F, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, TruncMonth
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -101,6 +101,13 @@ class OverdueView(APIView):
         queryset = dated(issued(currency), 'confirmed_at__date', dates).filter(
             due_date__lt=timezone.localdate(), balance__gt=0,
         ).select_related('subscription__customer').order_by('due_date', 'id')
+        search = request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(invoice_number__icontains=search)
+                | Q(subscription__customer__name__icontains=search)
+                | Q(customer_snapshot__name__icontains=search)
+            )
         paginator = CatalogPagination()
         page = paginator.paginate_queryset(queryset, request)
         return paginator.get_paginated_response([{
@@ -110,3 +117,33 @@ class OverdueView(APIView):
             'amount_paid': money(item.amount_paid), 'balance': money(item.balance),
             'due_date': item.due_date.isoformat(), 'days_overdue': (timezone.localdate() - item.due_date).days,
         } for item in page])
+
+
+class PortalSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            customer = request.user.customer_profile
+        except (AttributeError, Customer.DoesNotExist):
+            customer = None
+        if customer is None:
+            return Response({
+                'currency': 'INR', 'active_subscriptions': 0, 'total_subscriptions': 0,
+                'issued_invoices': 0, 'outstanding': '0.00', 'next_billing_date': None,
+            })
+        subscriptions = Subscription.objects.filter(customer=customer)
+        active = subscriptions.filter(status=Subscription.Status.ACTIVE)
+        invoices = issued('INR').filter(
+            Q(customer_id_snapshot=customer.pk)
+            | Q(customer_id_snapshot__isnull=True, subscription__customer=customer)
+        )
+        outstanding = invoices.aggregate(total=Sum('balance'))['total']
+        return Response({
+            'currency': 'INR',
+            'active_subscriptions': active.count(),
+            'total_subscriptions': subscriptions.count(),
+            'issued_invoices': invoices.count(),
+            'outstanding': money(outstanding),
+            'next_billing_date': active.filter(next_billing_date__isnull=False).order_by('next_billing_date').values_list('next_billing_date', flat=True).first(),
+        })

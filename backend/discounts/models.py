@@ -24,7 +24,9 @@ class DiscountRule(models.Model):
     value = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     scope = models.CharField(max_length=16, choices=Scope.choices, default=Scope.ORDER)
     min_order_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
+    minimum_quantity = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     max_discount_cap = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
+    products = models.ManyToManyField("products.Product", blank=True, related_name="discount_rules")
     valid_from = models.DateTimeField(default=timezone.now)
     valid_to = models.DateTimeField(null=True, blank=True)
     max_uses = models.PositiveIntegerField(null=True, blank=True)
@@ -54,6 +56,7 @@ class DiscountRule(models.Model):
                 check=Q(min_order_amount__isnull=True) | Q(min_order_amount__gte=0),
                 name="discount_min_order_nonneg_ck",
             ),
+            models.CheckConstraint(check=Q(minimum_quantity__gte=1), name="discount_min_quantity_ck"),
             models.CheckConstraint(
                 check=Q(max_discount_cap__isnull=True) | Q(max_discount_cap__gte=0),
                 name="discount_cap_nonneg_ck",
