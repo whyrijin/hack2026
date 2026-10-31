@@ -3,7 +3,9 @@ import uuid
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
+from plans.models import Plan
 
 class Subscription(models.Model):
     class Status(models.TextChoices):
@@ -27,6 +29,20 @@ class Subscription(models.Model):
     plan_tax_rate_snapshot = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        indexes = [models.Index(fields=['status', 'next_billing_date'])]
+
+    def save(self, *args, **kwargs):
+        creating = self._state.adding
+        if creating and self.billing_anchor_day is None:
+            self.billing_anchor_day = self.start_date.day
+        if creating and self.billing_anchor_month is None:
+            self.billing_anchor_month = self.start_date.month
+        if creating and not self.number:
+            self.number = f'SUB-{self.pk.hex[:12].upper()}'
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Subscription {self.pk} ({self.status})"

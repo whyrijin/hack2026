@@ -3,10 +3,16 @@ import { BrandLogo } from './components/BrandLogo.tsx'
 import { SubscriptionIllustration } from './components/SubscriptionIllustration.tsx'
 import { LoginForm } from './components/LoginForm.tsx'
 import { SignupForm } from './components/SignupForm.tsx'
+import { WorkspaceDashboard } from './components/WorkspaceDashboard.tsx'
+import { ProtectedRoute } from './components/ProtectedRoute.tsx'
+import { AuthProvider } from './context/AuthContext.tsx'
+import { useAuth } from './context/useAuth.ts'
 import { CheckCircle2, ShieldCheck, Zap } from 'lucide-react'
 
-export const App: React.FC = () => {
-  // Support state-based switching with hash/path detection fallback
+const MainScreen: React.FC = () => {
+  const { isAuthenticated, isLoading } = useAuth()
+
+  // Supports state-based switching with hash/path detection fallback
   const [currentScreen, setCurrentScreen] = useState<'login' | 'signup'>(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.toLowerCase()
@@ -20,12 +26,23 @@ export const App: React.FC = () => {
 
   // Sync hash when screen changes so users can bookmark or reload
   useEffect(() => {
-    if (currentScreen === 'signup') {
+    if (isAuthenticated) {
+      window.history.replaceState(null, '', '#workspace')
+    } else if (currentScreen === 'signup') {
       window.history.replaceState(null, '', '#signup')
     } else {
       window.history.replaceState(null, '', '#login')
     }
-  }, [currentScreen])
+  }, [currentScreen, isAuthenticated])
+
+  // If user is authenticated, render the protected workspace dashboard
+  if (isAuthenticated) {
+    return (
+      <ProtectedRoute>
+        <WorkspaceDashboard />
+      </ProtectedRoute>
+    )
+  }
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F7F9FC] overflow-x-hidden">
@@ -71,8 +88,7 @@ export const App: React.FC = () => {
             </h2>
 
             <p className="text-sm sm:text-base text-slate-300 max-w-lg mx-auto lg:mx-0 leading-relaxed">
-              One unified platform to manage customers, recurring billing, automated renewals, and continuous
-              business performance.
+              One workspace for customer records, subscription lifecycle actions, and recurring billing schedules.
             </p>
           </div>
 
@@ -85,11 +101,11 @@ export const App: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 text-xs text-slate-300 md:hidden">
             <div className="flex items-center gap-2 bg-white/5 p-2.5 rounded-lg border border-white/10">
               <CheckCircle2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
-              <span>Automated recurring billing</span>
+              <span>Scheduled billing scans</span>
             </div>
             <div className="flex items-center gap-2 bg-white/5 p-2.5 rounded-lg border border-white/10">
               <CheckCircle2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
-              <span>Smart churn prevention</span>
+              <span>Customer lifecycle controls</span>
             </div>
           </div>
         </div>
@@ -98,14 +114,7 @@ export const App: React.FC = () => {
         <footer className="relative z-10 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-[#38BDF8]" />
-            <span>Bank-grade security &amp; PCI-DSS Level 1 compliant</span>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] text-slate-400">
-            <span>SOC2 Type II</span>
-            <span>•</span>
-            <span>256-bit AES</span>
-            <span>•</span>
-            <span>99.99% SLA</span>
+            <span>Secure account access for subscription management</span>
           </div>
         </footer>
       </section>
@@ -123,13 +132,26 @@ export const App: React.FC = () => {
         </div>
 
         {/* Conditional rendering between Login and Signup */}
-        {currentScreen === 'signup' ? (
+        {isLoading ? (
+          <div className="w-full max-w-[440px] mx-auto bg-white rounded-2xl border border-[#E5E7EB] p-8 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
+            <span className="w-4 h-4 border-2 border-[#4965F5] border-t-transparent rounded-full animate-spin" />
+            <span>Verifying session...</span>
+          </div>
+        ) : currentScreen === 'signup' ? (
           <SignupForm onNavigateToLogin={() => setCurrentScreen('login')} />
         ) : (
           <LoginForm onNavigateToSignup={() => setCurrentScreen('signup')} />
         )}
       </main>
     </div>
+  )
+}
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <MainScreen />
+    </AuthProvider>
   )
 }
 

@@ -198,6 +198,21 @@ def _validated_pricing(pricing):
     return currency, subtotal, discount_total, tax_total, total, lines, discount_applied
 
 
+def _status_at_period_start(subscription, period_start):
+    """Resolve historical eligibility from lifecycle events, not today's status."""
+    events = list(SubscriptionEvent.objects.filter(
+        subscription=subscription,
+        effective_on__lte=period_start,
+    ).order_by("effective_on", "created_at", "id"))
+    if not events:
+        # Older or manually imported subscriptions may not have an event log.
+        return subscription.status
+    current = Subscription.Status.DRAFT
+    for event in events:
+        current = event.to_status
+    return current
+
+
 def create_invoice_for_period(subscription_id: UUID, period_start: date, period_end: date) -> Invoice:
     """Create one draft invoice per subscription and half-open billing period."""
     if isinstance(period_start, datetime) or isinstance(period_end, datetime):
@@ -224,12 +239,22 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
                 subscription = Subscription.objects.select_for_update().get(pk=subscription_id)
             except Subscription.DoesNotExist as exc:
                 raise SubscriptionNotFound(f"Subscription {subscription_id} does not exist.") from exc
-            if subscription.status != Subscription.Status.ACTIVE:
-                raise SubscriptionNotBillable(f"Subscription {subscription_id} is not active.")
 
             existing = existing_for_period_start()
             if existing is not None:
+                if existing.period_end != period_end:
+                    raise InvoicePeriodConflict(
+                        f"An invoice already exists for {subscription_id} starting {period_start} with a different period end."
+                    )
                 return existing
+
+            if period_start < subscription.start_date or (
+                subscription.expiry_date and period_start > subscription.expiry_date
+            ):
+                raise SubscriptionNotBillable(f"Subscription {subscription_id} is not billable for this service period.")
+
+            if _status_at_period_start(subscription, period_start) != Subscription.Status.ACTIVE:
+                raise SubscriptionNotBillable(f"Subscription {subscription_id} was not active at this service period start.")
 
             pricing = _load_provider()(subscription, period_start, period_end)
             currency, subtotal, discount_total, tax_total, total, lines, discount_applied = _validated_pricing(pricing)

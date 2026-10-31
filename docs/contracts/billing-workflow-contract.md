@@ -37,7 +37,7 @@ def create_invoice_for_period(
     ...
 ```
 
-Location: `backend/billing/services/invoices.py`. It calls the dotted callable configured by `BILLING_PERIOD_PRICING_PROVIDER`; that adapter must call Aby's authoritative `calculate_price` service and return its documented pricing result. This project currently has no catalog models or pricing engine, so configure the provider when that integration lands.
+Location: `backend/billing/services/invoices.py`. It calls the dotted callable configured by `BILLING_PERIOD_PRICING_PROVIDER`; the default adapter carries the accepted `Subscription` price snapshots into invoice lines. Subscription creation and draft edits call `products.services.calculate_price`, which currently calculates plan and product prices with additive taxes from the existing catalog models. Discount application remains unintegrated and needs alignment with the catalog contract before it is considered complete.
 
 Provider shape: `price_subscription_period(subscription, period_start, period_end) -> dict`, matching the output structure in `aby-catalog-pricing-contract.md`. Invoice generation validates that line snapshots reconcile with the pricing totals before creating the invoice.
 
@@ -48,7 +48,7 @@ Provider shape: `price_subscription_period(subscription, period_start, period_en
 3. Create one invoice per subscription and `period_start`. Enforce a database uniqueness constraint on `(subscription, period_start)`. Repeating the same call with the same `period_end` returns the existing invoice; requesting a different end date for that start raises a period conflict.
 4. Snapshot every invoice line's description, quantity, currency, unit price, discount, tax, and totals. Later catalog edits must not change an existing invoice.
 5. Create the invoice in `Draft`. Invoice confirmation and payment are separate state transitions and are not side effects of invoice generation.
-6. Build invoice values through the shared authoritative pricing service agreed with Aby; do not reproduce price or tax math inside billing.
+6. Build the accepted subscription price through the shared pricing service, then carry the saved amount and tax snapshots into each invoice. Do not re-read mutable catalog prices for an already accepted subscription.
 7. Do not send email inside this function. The caller queues notifications after commit.
 
 ### Team decision for Rijin

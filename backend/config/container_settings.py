@@ -39,6 +39,8 @@ STORAGES = {
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/1')
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TIMEZONE = os.environ.get('BUSINESS_TIME_ZONE', 'Asia/Kolkata')
+TIME_ZONE = CELERY_TIMEZONE
 
 # Enable these only behind a trusted TLS-terminating reverse proxy.
 SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'false').lower() == 'true'
