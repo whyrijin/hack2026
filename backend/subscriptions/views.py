@@ -39,7 +39,9 @@ def _customer_for(user):
 
 
 def _subscription_queryset(request, portal=False):
-    qs = Subscription.objects.select_related('customer', 'plan', 'template', 'renewal_of').prefetch_related('lines', 'events', 'billing_attempts')
+    qs = Subscription.objects.select_related('customer', 'plan', 'template', 'renewal_of').prefetch_related(
+        'lines', 'events', 'billing_attempts', 'invoices'
+    )
     if portal:
         customer = _customer_for(request.user)
         if customer is None:
@@ -109,8 +111,23 @@ def _serialize(subscription, portal=False):
         'allowed_actions': [a for a in allowed_actions(subscription) if a in {'pause', 'resume', 'close', 'renew'}] if portal else allowed_actions(subscription),
         'created_at': subscription.created_at.isoformat(),
     }
-    if not portal:
-        data['invoices'] = [{'id': a.invoice_id, 'period_start': a.period_start.isoformat(), 'period_end': a.period_end.isoformat(), 'status': a.result} for a in subscription.billing_attempts.exclude(invoice_id__isnull=True)]
+    invoices = list(subscription.invoices.all())
+    if portal:
+        # Draft invoices are internal until staff confirm them.
+        invoices = [invoice for invoice in invoices if invoice.status in {'Confirmed', 'Paid'}]
+    invoices.sort(key=lambda invoice: (invoice.period_start, invoice.created_at))
+    data['invoices'] = [
+        {
+            'id': str(invoice.pk),
+            'period_start': invoice.period_start.isoformat(),
+            'period_end': invoice.period_end.isoformat(),
+            'status': invoice.status,
+            'currency': invoice.currency,
+            'total': str(invoice.total),
+            'due_date': invoice.due_date.isoformat() if invoice.due_date else None,
+        }
+        for invoice in invoices
+    ]
     return data
 
 
@@ -444,8 +461,15 @@ class PortalSubscriptionListView(APIView):
 
     def get(self, request):
         qs = _subscription_queryset(request, portal=True)
-        page = SubscriptionListCreateView().paginator.paginate_queryset(qs, request, view=self)
-        return SubscriptionListCreateView().paginator.get_paginated_response([_serialize(item, portal=True) for item in page])
+        status_filter = request.query_params.get('status', '').strip().lower()
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(number__icontains=search)
+        paginator = SubscriptionListCreateView().paginator
+        page = paginator.paginate_queryset(qs, request, view=self)
+        return paginator.get_paginated_response([_serialize(item, portal=True) for item in page])
 
 
 class PortalSubscriptionDetailView(APIView):

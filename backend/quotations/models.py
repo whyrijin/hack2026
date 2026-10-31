@@ -23,7 +23,7 @@ class QuoteTemplate(models.Model):
                 'variant_id': line.variant_id,
                 'quantity': line.quantity,
             }
-            for line in self.lines.select_related('product', 'variant').order_by('position')
+            for line in self.lines.all()
         ]
 
     def __str__(self):

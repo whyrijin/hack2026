@@ -9,7 +9,11 @@ def stable_exception_handler(exc, context):
         return None
     detail = response.data
     if isinstance(detail, dict) and 'code' in detail and 'message' in detail:
-        payload = detail
+        payload = {
+            'code': str(detail['code']),
+            'message': str(detail['message']),
+            'fields': detail.get('fields', {}),
+        }
     elif isinstance(detail, dict):
         payload = {'code': 'VALIDATION_ERROR' if response.status_code == 400 else 'REQUEST_ERROR', 'message': 'The request could not be completed.', 'fields': detail}
     else:

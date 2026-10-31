@@ -1,73 +1,64 @@
-"""Adapt Aby's catalog pricing DTO to the invoice service's snapshot format."""
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
-from django.utils.module_loading import import_string
+"""Adapt a quoted subscription's immutable price snapshot to invoice DTOs."""
+
+from decimal import Decimal
 
 
 def price_subscription_period(subscription, period_start, period_end):
-    """Price one saved subscription cycle without duplicating pricing math.
+    """Build an invoice from the prices accepted on the subscription quote.
 
-    ``products.services.calculate_price`` is supplied by the catalog/pricing
-    integration. This adapter only reshapes its DTO for billing; it does not
-    calculate money or apply its own discount/tax rules.
+    Catalog edits after confirmation must not silently change a customer's
+    recurring price. Subscription creation/editing calls the shared catalog
+    pricing service; this adapter carries those saved values into each cycle.
     """
-    provider_path = getattr(settings, 'SUBSCRIPTION_PRICING_PROVIDER', '')
-    if not provider_path:
-        raise ImproperlyConfigured('Configure SUBSCRIPTION_PRICING_PROVIDER before creating invoices.')
-    try:
-        calculate_price = import_string(provider_path)
-    except (ImportError, AttributeError, ValueError) as exc:
-        raise ImproperlyConfigured(f'SUBSCRIPTION_PRICING_PROVIDER could not be loaded: {provider_path!r}.') from exc
+    lines = list(subscription.lines.all())
+    line_discounts = sum((line.discount_amount for line in lines), Decimal("0.00"))
+    line_taxes = sum((line.tax_amount for line in lines), Decimal("0.00"))
+    plan_discount = subscription.discount_total - line_discounts
+    plan_tax = subscription.tax_total - line_taxes
+    plan_base = subscription.base_price_snapshot
+    plan_net = plan_base - plan_discount
 
-    lines = [
-        {
-            'product_id': line.product_id,
-            'variant_id': line.variant_id,
-            'quantity': line.quantity,
-        }
-        for line in subscription.lines.select_related('product', 'variant').all()
-    ]
-    result = calculate_price(
-        plan=subscription.plan,
-        lines=lines,
-        effective_date=period_start,
-    )
-    if not isinstance(result, dict) or not isinstance(result.get('lines'), list):
-        raise ValueError('The pricing service must return the documented pricing DTO.')
+    if min(plan_base, plan_discount, plan_tax, plan_net) < 0:
+        raise ValueError("Subscription pricing snapshots do not reconcile to nonnegative plan amounts.")
 
-    plan_summary = result.get('plan_summary')
-    if plan_summary:
+    plan_summary = None
+    if any((plan_base, plan_discount, plan_tax)):
+        plan_tax_rate = (plan_tax * Decimal("100") / plan_net) if plan_net else Decimal("0.0000")
         plan_summary = {
-            'plan_name': plan_summary.get('name') or subscription.plan.name,
-            'base_fee': plan_summary.get('base_fee', 0),
-            'discount_amount': plan_summary.get('discount_amount', 0),
-            'net_amount': plan_summary.get('net_amount'),
-            'tax_rate': plan_summary.get('tax_rate'),
-            'tax_amount': plan_summary.get('tax_amount', 0),
-            'total_amount': plan_summary.get('final_total'),
+            "plan_name": subscription.plan.name,
+            "plan_id": subscription.plan_id,
+            "base_fee": str(plan_base),
+            "discount_amount": str(plan_discount),
+            "net_amount": str(plan_net),
+            "tax_rate": str(plan_tax_rate),
+            "tax_amount": str(plan_tax),
+            "total_amount": str(plan_net + plan_tax),
         }
 
-    invoice_lines = []
-    for line in result['lines']:
-        invoice_lines.append({
-            'product_name': line.get('product_name'),
-            'variant_name': line.get('variant_label'),
-            'quantity': line.get('quantity', 1),
-            'effective_unit_price': line.get('effective_unit_price', line.get('unit_sales_price')),
-            'gross_amount': line.get('line_subtotal'),
-            'discount_amount': line.get('discount_amount', 0),
-            'net_amount': line.get('line_net_amount'),
-            'tax_rate': line.get('tax_rate'),
-            'tax_amount': line.get('tax_amount', 0),
-            'total_amount': line.get('final_line_total'),
-        })
+    invoice_lines = [
+        {
+            "product_id": line.product_id,
+            "product_name": line.product_name_snapshot,
+            "variant_id": line.variant_id,
+            "variant_name": line.variant_name_snapshot,
+            "quantity": line.quantity,
+            "effective_unit_price": str(line.unit_price),
+            "gross_amount": str(line.gross_amount),
+            "discount_amount": str(line.discount_amount),
+            "net_amount": str(line.net_amount),
+            "tax_rate": str(line.tax_rate_snapshot) if line.tax_rate_snapshot is not None else None,
+            "tax_amount": str(line.tax_amount),
+            "total_amount": str(line.net_amount + line.tax_amount),
+        }
+        for line in lines
+    ]
 
     return {
-        'currency': result.get('currency', subscription.currency),
-        'plan_summary': plan_summary,
-        'lines': invoice_lines,
-        'subtotal': result.get('subtotal'),
-        'total_discount': result.get('total_discount'),
-        'total_tax': result.get('total_tax'),
-        'final_total': result.get('final_total'),
+        "currency": subscription.currency,
+        "plan_summary": plan_summary,
+        "lines": invoice_lines,
+        "subtotal": str(subscription.subtotal),
+        "total_discount": str(subscription.discount_total),
+        "total_tax": str(subscription.tax_total),
+        "final_total": str(subscription.total),
     }

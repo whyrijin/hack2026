@@ -10,7 +10,7 @@ from django.db import IntegrityError, transaction
 from django.utils.module_loading import import_string
 
 from billing.models import Invoice, InvoiceLine, InvoiceStatus
-from subscriptions.models import Subscription
+from subscriptions.models import Subscription, SubscriptionEvent
 
 
 class InvoiceGenerationError(Exception):
@@ -31,6 +31,10 @@ class InvoicePricingNotConfigured(InvoiceGenerationError):
 
 class InvalidPricingResult(InvoiceGenerationError):
     """The pricing engine returned data that cannot be snapshotted safely."""
+
+
+class InvoicePeriodConflict(InvoiceGenerationError):
+    """An invoice already exists for the cycle start with different boundaries."""
 
 
 def _load_provider():
@@ -59,13 +63,13 @@ def _decimal(value, field_name):
     return result
 
 
-def _source_uuid(value, field_name):
+def _source_id(value, field_name):
     if not value:
         return None
-    try:
-        return UUID(str(value))
-    except (TypeError, ValueError, AttributeError) as exc:
-        raise InvalidPricingResult(f"Pricing value {field_name} is not a UUID.") from exc
+    source_id = str(value).strip()
+    if not source_id or len(source_id) > 64:
+        raise InvalidPricingResult(f"Pricing value {field_name} is not a valid source identifier.")
+    return source_id
 
 
 def _snapshot_lines(pricing):
@@ -88,7 +92,7 @@ def _snapshot_lines(pricing):
             "tax_amount": tax,
             "total_amount": total,
             "source_type": "plan",
-            "source_id": _source_uuid(plan.get("plan_id"), "plan_summary.plan_id"),
+            "source_id": _source_id(plan.get("plan_id"), "plan_summary.plan_id"),
         })
 
     for item in pricing.get("lines", []):
@@ -109,7 +113,7 @@ def _snapshot_lines(pricing):
             "tax_amount": tax,
             "total_amount": total,
             "source_type": "product",
-            "source_id": _source_uuid(item.get("product_id"), "lines[].product_id"),
+            "source_id": _source_id(item.get("product_id"), "lines[].product_id"),
         })
 
     if not line_data:
@@ -164,6 +168,21 @@ def _validated_pricing(pricing):
     return currency, subtotal, discount_total, tax_total, total, lines
 
 
+def _status_at_period_start(subscription, period_start):
+    """Resolve historical eligibility from lifecycle events, not today's status."""
+    events = list(SubscriptionEvent.objects.filter(
+        subscription=subscription,
+        effective_on__lte=period_start,
+    ).order_by("effective_on", "created_at", "id"))
+    if not events:
+        # Older or manually imported subscriptions may not have an event log.
+        return subscription.status
+    current = Subscription.Status.DRAFT
+    for event in events:
+        current = event.to_status
+    return current
+
+
 def create_invoice_for_period(subscription_id: UUID, period_start: date, period_end: date) -> Invoice:
     """Create one draft invoice per subscription and half-open billing period."""
     if isinstance(period_start, datetime) or isinstance(period_end, datetime):
@@ -174,7 +193,6 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
     lookup = {
         "subscription_id": subscription_id,
         "period_start": period_start,
-        "period_end": period_end,
     }
     try:
         with transaction.atomic():
@@ -182,12 +200,22 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
                 subscription = Subscription.objects.select_for_update().get(pk=subscription_id)
             except Subscription.DoesNotExist as exc:
                 raise SubscriptionNotFound(f"Subscription {subscription_id} does not exist.") from exc
-            if subscription.status != Subscription.Status.ACTIVE:
-                raise SubscriptionNotBillable(f"Subscription {subscription_id} is not active.")
 
             existing = Invoice.objects.filter(**lookup).first()
             if existing is not None:
+                if existing.period_end != period_end:
+                    raise InvoicePeriodConflict(
+                        f"An invoice already exists for {subscription_id} starting {period_start} with a different period end."
+                    )
                 return existing
+
+            if period_start < subscription.start_date or (
+                subscription.expiry_date and period_start > subscription.expiry_date
+            ):
+                raise SubscriptionNotBillable(f"Subscription {subscription_id} is not billable for this service period.")
+
+            if _status_at_period_start(subscription, period_start) != Subscription.Status.ACTIVE:
+                raise SubscriptionNotBillable(f"Subscription {subscription_id} was not active at this service period start.")
 
             pricing = _load_provider()(subscription, period_start, period_end)
             currency, subtotal, discount_total, tax_total, total, lines = _validated_pricing(pricing)
@@ -208,8 +236,12 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
             ])
             return invoice
     except IntegrityError:
-        # The unique period constraint is the final guard if two workers race.
+        # The unique cycle start constraint is the final guard if two workers race.
         existing = Invoice.objects.filter(**lookup).first()
         if existing is None:
             raise
+        if existing.period_end != period_end:
+            raise InvoicePeriodConflict(
+                f"An invoice already exists for {subscription_id} starting {period_start} with a different period end."
+            )
         return existing
