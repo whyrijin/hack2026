@@ -1,0 +1,8 @@
+Hello {{ customer_name }},
+
+Your quotation {{ subscription_number }} for {{ plan_name }} totals {{ currency }} {{ total }}.
+It is valid through {{ valid_until }}.
+
+Please sign in to your BrightLoop account to review the subscription details.
+
+BrightLoop Software

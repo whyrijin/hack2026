@@ -5,6 +5,7 @@ from datetime import timedelta
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.template import TemplateDoesNotExist
 from django.template.loader import render_to_string
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 from .constants import REGISTERED_EMAIL_TEMPLATES
 from .models import EmailOutbox
+from billing.models import DocumentJob
 
 MAX_DELIVERY_ATTEMPTS = 6
 DELIVERY_LEASE = timedelta(minutes=30)
@@ -61,6 +63,12 @@ def deliver_email(self, email_id):
         )
         if html_body:
             message.attach_alternative(html_body, "text/html")
+        if template == "invoice_document":
+            job = DocumentJob.objects.get(pk=context["document_job_id"])
+            if job.status != DocumentJob.Status.SUCCEEDED or not job.storage_key:
+                raise RuntimeError("The invoice PDF is not ready to attach yet.")
+            with default_storage.open(job.storage_key, "rb") as document:
+                message.attach(f"{context['invoice_number']}.pdf", document.read(), "application/pdf")
         if message.send(fail_silently=False) != 1:
             raise RuntimeError("Email backend did not report a successful delivery.")
     except Exception as exc:

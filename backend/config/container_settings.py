@@ -14,7 +14,7 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'false').lower() == 'true'
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
 # The container health probe uses localhost, even when public hosts are restricted.
 ALLOWED_HOSTS += ['localhost', '127.0.0.1']
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()]
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in (os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS') or 'http://localhost:8080,http://localhost:5173').split(',') if origin.strip()]
 
 DATABASES = {
     'default': {

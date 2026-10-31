@@ -69,6 +69,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const actionNames: Record<string, string> = {
   quote: 'Create quotation',
+  send: 'Send quotation',
   confirm: 'Confirm quote',
   activate: 'Activate',
   pause: 'Pause',
@@ -139,12 +140,17 @@ export const SubscriptionWorkspace: React.FC<{ portalMode?: boolean }> = ({ port
     setNotice('')
     try {
       const prefix = portalMode ? '/portal/subscriptions/' : '/subscriptions/'
-      const updated = await request<Subscription>(`${prefix}${selected.id}/${action}/`, {
+      const updated = await request<Subscription | { status: string; recipient: string }>(`${prefix}${selected.id}/${action}/`, {
         method: 'POST', body: JSON.stringify({ reason }),
       })
-      setSelected(updated)
+      if (action === 'send') {
+        const email = updated as { status: string; recipient: string }
+        setNotice(email.status === 'sent' ? `Quotation emailed to ${email.recipient}.` : `Quotation queued for ${email.recipient}.`)
+      } else {
+        setSelected(updated as Subscription)
+        setNotice(`${actionNames[action] || action} completed.`)
+      }
       setReason('')
-      setNotice(`${actionNames[action] || action} completed.`)
       await loadSubscriptions()
     } catch (err) { setError((err as Error).message) }
     finally { setBusyAction('') }
@@ -165,18 +171,8 @@ export const SubscriptionWorkspace: React.FC<{ portalMode?: boolean }> = ({ port
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between px-4 py-3 sm:px-8">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#101828] text-cyan-300"><CircleDollarSign size={21} /></div>
-            <div><p className="text-sm font-bold tracking-tight">BrightLoop</p><p className="text-xs text-slate-500">Subscription workspace</p></div>
-          </div>
-
-        </div>
-      </header>
-
-        <main className="mx-auto max-w-[1440px] px-4 py-7 sm:px-8 sm:py-10">
+    <div className="text-slate-900">
+      <div>
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div><p className="text-xs font-bold uppercase tracking-[.18em] text-blue-600">{portalMode ? 'Customer portal' : 'Subscriptions / Overview'}</p><h1 className="mt-2 text-3xl font-black tracking-tight text-[#101828]">{portalMode ? 'Your subscriptions' : 'Manage subscriptions'}</h1><p className="mt-2 text-sm text-slate-500">{portalMode ? 'View your subscriptions and manage the actions available to you.' : 'Quotes, service periods, and billing status in one place.'}</p></div>
             {!portalMode && <button onClick={() => { setError(''); setEditing(null); setShowCreate(true) }} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#4965F5] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#3852de]"><Plus size={17} /> New subscription</button>}
@@ -217,7 +213,7 @@ export const SubscriptionWorkspace: React.FC<{ portalMode?: boolean }> = ({ port
             </aside>
           </div>
           <p className="mt-5 flex items-center gap-2 text-xs text-slate-400"><ShieldCheck size={14} /> Customer and plan IDs come from the team catalog; staff actions are checked by the API.</p>
-        </main>
+      </div>
         {showCreate && !portalMode && <CreateSubscription initial={editing || undefined} onClose={() => { setShowCreate(false); setEditing(null) }} onSave={saveSubscription} />}
     </div>
   )

@@ -1,294 +1,66 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
+import { FileText, Headphones, Layers, LayoutDashboard, LogOut, ShieldCheck, Users, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/useAuth.ts'
 import { BrandLogo } from './BrandLogo.tsx'
 import { RoleProtectedRoute } from './ProtectedRoute.tsx'
-import { AdminDashboard } from './admin/AdminDashboard.tsx'
 import { CustomerDirectory } from './customers/CustomerDirectory.tsx'
 import { StaffOperations } from './customers/StaffOperations.tsx'
 import { AdminGovernance } from './customers/AdminGovernance.tsx'
 import { ReportsView } from './reports/ReportsView.tsx'
 import { SubscriptionWorkspace } from './SubscriptionWorkspace.tsx'
+import { InvoiceWorkspace } from './invoices/InvoiceWorkspace.tsx'
 import { CustomerPortal } from './portal/CustomerPortal.tsx'
 import type { UserRole } from '../types/auth.ts'
-import {
-  LogOut,
-  LayoutDashboard,
-  Users,
-  Layers,
-  BarChart3,
-  ShieldCheck,
-  Headphones,
-  Eye,
-  Loader2,
-} from 'lucide-react'
 
-type WorkspaceTab =
-  | 'dashboard'
-  | 'customers'
-  | 'subscriptions'
-  | 'staff'
-  | 'reports'
-  | 'governance'
-  | 'portal'
+type WorkspaceTab = 'overview' | 'customers' | 'subscriptions' | 'invoices' | 'operations' | 'governance'
 
-export const WorkspaceDashboard: React.FC = () => {
+const navigation: Array<{ id: WorkspaceTab; label: string; icon: typeof LayoutDashboard; roles: UserRole[] }> = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, roles: ['staff', 'admin'] },
+  { id: 'subscriptions', label: 'Subscriptions', icon: Layers, roles: ['staff', 'admin'] },
+  { id: 'invoices', label: 'Invoices', icon: FileText, roles: ['staff', 'admin'] },
+  { id: 'customers', label: 'Customers', icon: Users, roles: ['staff', 'admin'] },
+  { id: 'operations', label: 'Operations', icon: Headphones, roles: ['staff', 'admin'] },
+  { id: 'governance', label: 'Governance', icon: ShieldCheck, roles: ['admin'] },
+]
+
+export function WorkspaceDashboard() {
   const { user, role, logout } = useAuth()
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
-
   const currentRole = (role || 'admin') as UserRole
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview')
+  const [loggingOut, setLoggingOut] = useState(false)
 
-  // Default to Customer Portal for customer role, or Admin Dashboard for staff/admin
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => {
-    return currentRole === 'customer' ? 'portal' : 'dashboard'
-  })
-
-  const handleLogout = async () => {
-    setIsLoggingOut(true)
-    try {
-      await logout()
-    } finally {
-      setIsLoggingOut(false)
-    }
+  async function signOut() {
+    setLoggingOut(true)
+    try { await logout() } finally { setLoggingOut(false) }
   }
 
-  // If customer is logged in and on portal tab, render pure Customer Portal
-  if (currentRole === 'customer' && activeTab === 'portal') {
-    return <CustomerPortal />
-  }
+  if (currentRole === 'customer') return <CustomerPortal />
 
-  const displayName = user?.full_name || user?.name || user?.email?.split('@')[0] || 'Administrator'
-  const userInitials = (displayName.charAt(0) || 'A').toUpperCase()
+  const displayName = user?.full_name || user?.name || user?.email?.split('@')[0] || 'Team member'
+  const visibleNavigation = navigation.filter(item => item.roles.includes(currentRole))
 
-  const roleBadgeStyles: Record<UserRole, string> = {
-    admin: 'bg-purple-100 text-purple-700 border-purple-200',
-    staff: 'bg-blue-100 text-[#4965F5] border-blue-200',
-    customer: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  }
-
-  return (
-    <div className="min-h-screen w-full bg-[#F7F9FC] text-[#172033] flex flex-col">
-      {/* ========================================================= */}
-      {/* TOP HEADER NAVIGATION BAR                                 */}
-      {/* ========================================================= */}
-      <header className="sticky top-0 z-30 bg-white border-b border-[#E5E7EB] shadow-xs px-4 sm:px-8 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <BrandLogo variant="light" size="md" showBadge />
-          <span className="hidden md:inline-block h-5 w-[1px] bg-slate-200" />
-          <span className="hidden md:inline-block text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Enterprise Console
-          </span>
+  return <div className="min-h-screen bg-slate-50 text-slate-900">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex shrink-0 items-center gap-4"><BrandLogo variant="light" size="md" showBadge/><span className="hidden h-6 w-px bg-slate-200 sm:block"/><span className="hidden text-sm font-medium text-slate-500 sm:block">Subscription workspace</span></div>
+        <nav aria-label="Workspace" className="order-3 flex w-full items-center gap-1 overflow-x-auto border-t border-slate-100 pt-2 sm:order-2 sm:ml-4 sm:w-auto sm:flex-1 sm:border-0 sm:pt-0">
+          {visibleNavigation.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${activeTab === id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}><Icon size={16}/>{label}</button>)}
+        </nav>
+        <div className="ml-auto flex shrink-0 items-center gap-3 sm:order-3">
+          <div className="hidden text-right sm:block"><p className="text-sm font-semibold leading-5">{displayName}</p><p className="text-xs capitalize text-slate-500">{currentRole} access</p></div>
+          <div className="grid h-9 w-9 place-items-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">{displayName.charAt(0).toUpperCase()}</div>
+          <button type="button" onClick={() => void signOut()} disabled={loggingOut} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" title="Sign out">{loggingOut ? <Loader2 size={16} className="animate-spin"/> : <LogOut size={16}/>}<span className="hidden md:inline">Sign out</span></button>
         </div>
+      </div>
+    </header>
 
-        <div className="flex items-center gap-3">
-          {/* Role badge */}
-          <span
-            className={`capitalize text-xs font-bold px-2.5 py-1 rounded-full border ${
-              roleBadgeStyles[currentRole]
-            }`}
-          >
-            {currentRole} Access
-          </span>
-
-          {/* User profile capsule */}
-          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200">
-            <div className="w-7 h-7 rounded-full bg-[#4965F5] text-white flex items-center justify-center font-bold text-xs shadow-xs">
-              {userInitials}
-            </div>
-            <div className="hidden sm:flex flex-col text-left">
-              <span className="text-xs font-bold text-[#172033] leading-none">{displayName}</span>
-              <span className="text-[11px] text-slate-500 leading-none mt-0.5">
-                {user?.email || 'admin@brightloop.io'}
-              </span>
-            </div>
-          </div>
-
-          {/* Sign Out Button */}
-          <button
-            type="button"
-            onClick={handleLogout}
-            disabled={isLoggingOut}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-xs font-semibold text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-[#4965F5]"
-            title="Log out of BrightLoop"
-          >
-            {isLoggingOut ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <LogOut className="w-3.5 h-3.5" />
-            )}
-            <span className="hidden sm:inline">Sign out</span>
-          </button>
-        </div>
-      </header>
-
-      {/* ========================================================= */}
-      {/* MAIN CONTAINER & ROLE-BASED TABS                          */}
-      {/* ========================================================= */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
-        {/* Navigation Tabs Bar */}
-        <div className="flex items-center gap-1.5 border-b border-[#E5E7EB] pb-2 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'dashboard'
-                ? 'bg-[#101828] text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            <span>Admin Dashboard</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('customers')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'customers'
-                ? 'bg-[#101828] text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Customer Directory</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('subscriptions')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'subscriptions'
-                ? 'bg-[#101828] text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Subscriptions</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('reports')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'reports'
-                ? 'bg-[#101828] text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Reports &amp; Metrics</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('staff')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'staff'
-                ? 'bg-[#101828] text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Headphones className="w-3.5 h-3.5" />
-            <span>Staff Queue</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('governance')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'governance'
-                ? 'bg-[#101828] text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Admin Governance</span>
-          </button>
-
-          {/* Customer Portal Preview Tab */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('portal')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ml-auto ${
-              activeTab === 'portal'
-                ? 'bg-[#4965F5] text-white shadow-xs'
-                : 'text-[#4965F5] bg-[#4965F5]/10 hover:bg-[#4965F5]/20'
-            }`}
-          >
-            <Eye className="w-3.5 h-3.5" />
-            <span>Customer Portal View</span>
-          </button>
-        </div>
-
-        {/* ========================================================= */}
-        {/* TAB CONTENTS                                              */}
-        {/* ========================================================= */}
-        {/* 1. Admin Dashboard */}
-        {activeTab === 'dashboard' && (
-          <RoleProtectedRoute
-            roles={['staff', 'admin']}
-            onAccessDenied={() => setActiveTab('customers')}
-          >
-            <AdminDashboard />
-          </RoleProtectedRoute>
-        )}
-
-        {/* 2. Customer Management Directory */}
-        {activeTab === 'customers' && (
-          <RoleProtectedRoute
-            roles={['customer', 'staff', 'admin']}
-            onAccessDenied={() => setActiveTab('dashboard')}
-          >
-            <CustomerDirectory />
-          </RoleProtectedRoute>
-        )}
-
-        {/* 3. Subscriptions Workspace */}
-        {activeTab === 'subscriptions' && (
-          <RoleProtectedRoute
-            roles={['staff', 'admin']}
-            onAccessDenied={() => setActiveTab('customers')}
-          >
-            <SubscriptionWorkspace />
-          </RoleProtectedRoute>
-        )}
-
-        {/* 4. Reports & Metrics */}
-        {activeTab === 'reports' && (
-          <RoleProtectedRoute
-            roles={['staff', 'admin']}
-            onAccessDenied={() => setActiveTab('customers')}
-          >
-            <ReportsView />
-          </RoleProtectedRoute>
-        )}
-
-        {/* 5. Staff Operations Queue */}
-        {activeTab === 'staff' && (
-          <RoleProtectedRoute
-            roles={['staff', 'admin']}
-            onAccessDenied={() => setActiveTab('customers')}
-          >
-            <StaffOperations />
-          </RoleProtectedRoute>
-        )}
-
-        {/* 6. Admin Governance Audit Trail */}
-        {activeTab === 'governance' && (
-          <RoleProtectedRoute
-            roles={['admin']}
-            onAccessDenied={() => setActiveTab('dashboard')}
-          >
-            <AdminGovernance />
-          </RoleProtectedRoute>
-        )}
-
-        {/* 7. Customer Portal View */}
-        {activeTab === 'portal' && (
-          <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <CustomerPortal />
-          </div>
-        )}
-      </main>
-    </div>
-  )
+    <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      {activeTab === 'overview' && <RoleProtectedRoute roles={['staff', 'admin']}><ReportsView/></RoleProtectedRoute>}
+      {activeTab === 'subscriptions' && <RoleProtectedRoute roles={['staff', 'admin']}><SubscriptionWorkspace/></RoleProtectedRoute>}
+      {activeTab === 'invoices' && <RoleProtectedRoute roles={['staff', 'admin']}><InvoiceWorkspace/></RoleProtectedRoute>}
+      {activeTab === 'customers' && <RoleProtectedRoute roles={['staff', 'admin']}><CustomerDirectory/></RoleProtectedRoute>}
+      {activeTab === 'operations' && <RoleProtectedRoute roles={['staff', 'admin']}><StaffOperations/></RoleProtectedRoute>}
+      {activeTab === 'governance' && <RoleProtectedRoute roles={['admin']}><AdminGovernance/></RoleProtectedRoute>}
+    </main>
+  </div>
 }

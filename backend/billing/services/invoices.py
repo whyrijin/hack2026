@@ -261,7 +261,15 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
             sequence_id = InvoiceNumberSequence.objects.create().pk
             customer_snapshot = {}
             if subscription.customer_id is not None:
-                customer_snapshot["customer_id"] = subscription.customer_id
+                customer = subscription.customer
+                customer_snapshot = {
+                    "customer_id": subscription.customer_id,
+                    "name": customer.name,
+                    "email": customer.email,
+                    "company": customer.company,
+                    "phone": customer.phone,
+                    "billing_address": customer.billing_address,
+                }
             invoice = Invoice.objects.create(
                 invoice_number=f"INV-{sequence_id:06d}",
                 subscription=subscription,

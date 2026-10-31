@@ -16,6 +16,7 @@ class Customer(models.Model):
     company = models.CharField(max_length=200, blank=True)
     email = models.EmailField(db_index=True)
     phone = models.CharField(max_length=40, blank=True)
+    notes = models.TextField(blank=True)
     billing_address = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

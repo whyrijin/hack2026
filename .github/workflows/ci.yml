@@ -35,3 +35,43 @@ jobs:
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
+
+  application:
+    name: Application integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare ephemeral configuration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import secrets
+          from pathlib import Path
+          Path('.env').write_text('DJANGO_SECRET_KEY=' + secrets.token_urlsafe(48) + '\nPOSTGRES_PASSWORD=' + secrets.token_urlsafe(24) + '\n')
+          PY
+      - name: Build and start database
+        run: |
+          docker compose build backend frontend
+          docker compose up -d --wait db redis
+      - name: Backend tests and migration consistency
+        run: |
+          docker compose run --rm --no-deps backend python manage.py check
+          docker compose run --rm --no-deps backend python manage.py makemigrations --check --dry-run
+          docker compose run --rm --no-deps backend python manage.py test --noinput
+      - name: Frontend tests and lint
+        run: |
+          docker run --rm -v "$PWD/frontend:/app" -w /app node:24-alpine sh -c 'npm ci && npm test && npm run lint && npm run build'
+      - name: Start complete application
+        run: |
+          docker compose up -d --wait --wait-timeout 120
+          curl --fail --retry 5 --retry-delay 2 http://localhost:8080/
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+      - name: Stop CI services
+        if: always()
+        run: docker compose down

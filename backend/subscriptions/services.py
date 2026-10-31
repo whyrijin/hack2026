@@ -57,6 +57,7 @@ def allowed_actions(subscription: Subscription, actor=None) -> list[str]:
         actions.append('quote')
     elif subscription.status == Subscription.Status.QUOTATION:
         actions.append('confirm')
+        actions.append('send')
     elif subscription.status == Subscription.Status.CONFIRMED:
         actions.append('activate')
     elif subscription.status == Subscription.Status.ACTIVE:
@@ -159,6 +160,8 @@ def renew(subscription_id, actor=None) -> Subscription:
         payment_term_days=old.payment_term_days,
         currency=old.currency,
         base_price_snapshot=old.base_price_snapshot,
+        plan_base_price_snapshot=old.plan_base_price_snapshot,
+        plan_tax_rate_snapshot=old.plan_tax_rate_snapshot,
         minimum_quantity_snapshot=old.minimum_quantity_snapshot,
         allow_pause_snapshot=old.allow_pause_snapshot,
         allow_early_close_snapshot=old.allow_early_close_snapshot,

@@ -20,7 +20,7 @@ ENV XDG_CACHE_HOME=/tmp/app-cache
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=app:app . .
-RUN mkdir -p /app/var && chown app:app /app/var \
+RUN mkdir -p /app/var /app/media && chown app:app /app/var /app/media \
     && DJANGO_SECRET_KEY=build-only-not-a-runtime-secret python manage.py collectstatic --noinput
 USER app
 EXPOSE 8000

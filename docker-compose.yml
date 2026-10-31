@@ -4,12 +4,16 @@ x-backend: &backend
   image: hack2026-backend:local
   build:
     context: ./backend
+  volumes:
+    - document_data:/app/media
   environment:
     DJANGO_SETTINGS_MODULE: config.container_settings
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
     DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+    FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+    MEDIA_ROOT: /app/media
     DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173}
     DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-false}
     BUSINESS_TIME_ZONE: ${BUSINESS_TIME_ZONE:-Asia/Kolkata}
     POSTGRES_DB: ${POSTGRES_DB:-app}
@@ -128,3 +132,4 @@ services:
 volumes:
   postgres_data:
   beat_data:
+  document_data:

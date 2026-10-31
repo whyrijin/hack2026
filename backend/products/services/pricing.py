@@ -181,7 +181,12 @@ def calculate_price(plan=None, lines=(), discount_to_apply=None, effective_date=
 
         applicable_ids = set(_get(discount_to_apply, "applicable_product_ids", ()))
         if scope == "products":
-            eligible = [entry for entry in product_entries if entry["product_id"] in applicable_ids]
+            eligible = [
+                entry for entry in product_entries
+                if not applicable_ids or entry["product_id"] in applicable_ids
+            ]
+        elif scope == "plan":
+            eligible = [plan_entry] if plan_entry is not None else []
         elif scope == "subscription":
             eligible = entries
         else:
@@ -193,6 +198,9 @@ def calculate_price(plan=None, lines=(), discount_to_apply=None, effective_date=
                 discount_total = quantize_currency(eligible_gross * discount_value / HUNDRED)
             else:
                 discount_total = min(quantize_currency(discount_value), eligible_gross)
+            discount_cap = _get(discount_to_apply, "max_discount_cap")
+            if discount_cap is not None:
+                discount_total = min(discount_total, quantize_currency(_decimal(discount_cap, "discount.max_discount_cap")))
             allocations = _allocate_discount(discount_total, eligible)
             if discount_total > ZERO:
                 discount = {
@@ -201,6 +209,7 @@ def calculate_price(plan=None, lines=(), discount_to_apply=None, effective_date=
                     "discount_type": discount_type,
                     "scope": scope,
                     "total_saving": discount_total,
+                    "max_discount_cap": discount_cap,
                 }
 
     plan_summary = None
