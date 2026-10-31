@@ -1,121 +1,109 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import React from 'react'
+import { BrandLogo } from './components/BrandLogo.tsx'
+import { SubscriptionIllustration } from './components/SubscriptionIllustration.tsx'
+import { LoginForm } from './components/LoginForm.tsx'
+import { CheckCircle2, ShieldCheck, Zap } from 'lucide-react'
 
-function App() {
-  const [count, setCount] = useState(0)
-
+export const App: React.FC = () => {
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F7F9FC] overflow-x-hidden">
+      {/* ========================================================= */}
+      {/* LEFT COLUMN: BRANDING & SUBSCRIPTION CYCLE VISUALS        */}
+      {/* ========================================================= */}
+      <section
+        aria-label="BrightLoop Platform Highlights"
+        className="relative lg:w-1/2 xl:w-[52%] bg-[#101828] text-white flex flex-col justify-between p-6 sm:p-10 lg:p-14 overflow-hidden border-b lg:border-b-0 lg:border-r border-[#1E2C48]"
+      >
+        {/* Subtle decorative radial gradients */}
+        <div
+          className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-[#4965F5]/25 blur-3xl pointer-events-none"
+          aria-hidden="true"
+        />
+        <div
+          className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full bg-[#38BDF8]/20 blur-3xl pointer-events-none"
+          aria-hidden="true"
+        />
+
+        {/* Top Header: BrightLoop Logo */}
+        <header className="relative z-10 flex items-center justify-between">
+          <BrandLogo variant="dark" size="md" showBadge />
+          <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-400 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>Systems Operational</span>
+          </div>
+        </header>
+
+        {/* Center: Main Headline, Supporting Copy & Abstract Illustration */}
+        <div className="relative z-10 my-8 lg:my-auto max-w-xl">
+          <div className="space-y-4 mb-6 lg:mb-8 text-center lg:text-left">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#4965F5]/15 border border-[#4965F5]/30 text-xs font-semibold text-[#38BDF8]">
+              <Zap className="w-3.5 h-3.5 text-[#38BDF8]" />
+              <span>Next-Gen Subscription Intelligence</span>
+            </div>
+
+            <h2 className="text-3xl sm:text-4xl xl:text-5xl font-black text-white tracking-tight leading-[1.15]">
+              Manage subscriptions.{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#60A5FA] via-[#38BDF8] to-[#93C5FD]">
+                Simplify growth.
+              </span>
+            </h2>
+
+            <p className="text-sm sm:text-base text-slate-300 max-w-lg mx-auto lg:mx-0 leading-relaxed">
+              One unified platform to manage customers, recurring billing, automated renewals, and continuous
+              business performance.
+            </p>
+          </div>
+
+          {/* Abstract Subscription Cycles Illustration */}
+          <div className="hidden md:block">
+            <SubscriptionIllustration />
+          </div>
+
+          {/* Quick highlight checklist on mobile/tablet */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 text-xs text-slate-300 md:hidden">
+            <div className="flex items-center gap-2 bg-white/5 p-2.5 rounded-lg border border-white/10">
+              <CheckCircle2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
+              <span>Automated recurring billing</span>
+            </div>
+            <div className="flex items-center gap-2 bg-white/5 p-2.5 rounded-lg border border-white/10">
+              <CheckCircle2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
+              <span>Smart churn prevention</span>
+            </div>
+          </div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+
+        {/* Bottom Left Footer: Compliance & Security badges */}
+        <footer className="relative z-10 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#38BDF8]" />
+            <span>Bank-grade security &amp; PCI-DSS Level 1 compliant</span>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] text-slate-400">
+            <span>SOC2 Type II</span>
+            <span>•</span>
+            <span>256-bit AES</span>
+            <span>•</span>
+            <span>99.99% SLA</span>
+          </div>
+        </footer>
       </section>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      {/* ========================================================= */}
+      {/* RIGHT COLUMN: CLEAN MODERN LOGIN CARD                     */}
+      {/* ========================================================= */}
+      <main
+        aria-label="BrightLoop Sign In"
+        className="lg:w-1/2 xl:w-[48%] flex flex-col justify-center items-center p-6 sm:p-10 lg:p-14"
+      >
+        {/* Mobile branding header displayed on mobile devices */}
+        <div className="lg:hidden mb-6 flex justify-center">
+          <BrandLogo variant="light" size="md" />
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        {/* Interactive Login Form Card */}
+        <LoginForm />
+      </main>
+    </div>
   )
 }
 
