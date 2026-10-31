@@ -7,15 +7,13 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Product',
+            name="TaxRule",
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(db_index=True, max_length=255)),
@@ -32,7 +30,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name='TaxRule',
+            name="Product",
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=64, unique=True)),
@@ -48,7 +46,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name='ProductVariant',
+            name="ProductVariant",
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('attribute_label', models.CharField(max_length=64)),
@@ -69,7 +67,10 @@ class Migration(migrations.Migration):
             field=models.ManyToManyField(blank=True, related_name='products', to='products.taxrule'),
         ),
         migrations.AddConstraint(
-            model_name='productvariant',
-            constraint=models.UniqueConstraint(fields=('product', 'attribute_label', 'option_value'), name='unique_product_variant_option'),
+            model_name="productvariant",
+            constraint=models.UniqueConstraint(
+                fields=("product", "attribute_label", "option_value"),
+                name="product_variant_option_uq",
+            ),
         ),
     ]

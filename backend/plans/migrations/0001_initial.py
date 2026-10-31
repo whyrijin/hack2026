@@ -2,36 +2,35 @@
 
 from decimal import Decimal
 import django.core.validators
-from django.db import migrations, models
 import django.db.models.deletion
 import django.utils.timezone
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
-        ('products', '0001_initial'),
+        ("products", "0001_initial"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='PaymentTerm',
+            name="PaymentTerm",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=64, unique=True)),
-                ('days_until_due', models.PositiveIntegerField(default=0, validators=[django.core.validators.MinValueValidator(0)])),
-                ('is_active', models.BooleanField(db_index=True, default=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("name", models.CharField(max_length=64, unique=True)),
+                ("days_until_due", models.PositiveIntegerField(default=0, validators=[django.core.validators.MinValueValidator(0)])),
+                ("is_active", models.BooleanField(db_index=True, default=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
                 'ordering': ['days_until_due'],
             },
         ),
         migrations.CreateModel(
-            name='Plan',
+            name="Plan",
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(db_index=True, max_length=255, unique=True)),

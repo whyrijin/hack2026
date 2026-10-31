@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -30,6 +31,12 @@ class TaxRule(models.Model):
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name",)
+        constraints = [
+            models.CheckConstraint(check=models.Q(percentage_rate__gte=0, percentage_rate__lte=100), name="tax_rate_range_ck"),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.percentage_rate}%)"
@@ -90,13 +97,12 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    @property
-    def sale_price(self):
-        return self.sales_price
-
-    @property
-    def active(self):
-        return self.is_active
+    class Meta:
+        ordering = ("name",)
+        constraints = [
+            models.CheckConstraint(check=models.Q(sales_price__gte=0), name="product_sales_price_nonneg_ck"),
+            models.CheckConstraint(check=models.Q(cost_price__gte=0), name="product_cost_price_nonneg_ck"),
+        ]
 
     def __str__(self):
         return self.name

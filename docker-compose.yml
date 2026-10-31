@@ -28,8 +28,7 @@ x-backend: &backend
     EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
     EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
     EMAIL_TIMEOUT: ${EMAIL_TIMEOUT:-30}
-    BILLING_PERIOD_PRICING_PROVIDER: ${BILLING_PERIOD_PRICING_PROVIDER:-billing_jobs.pricing.price_subscription_period}
-    SUBSCRIPTION_PRICING_PROVIDER: ${SUBSCRIPTION_PRICING_PROVIDER:-products.services.calculate_price}
+    BILLING_PERIOD_PRICING_PROVIDER: ${BILLING_PERIOD_PRICING_PROVIDER:-products.services.billing_adapter.price_subscription_period}
 
 services:
   db:

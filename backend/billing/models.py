@@ -14,6 +14,7 @@ class InvoiceStatus(models.TextChoices):
 
 class Invoice(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice_number = models.CharField(max_length=32, unique=True, editable=False)
     subscription = models.ForeignKey(
         "subscriptions.Subscription",
         on_delete=models.PROTECT,
@@ -21,6 +22,9 @@ class Invoice(models.Model):
     )
     period_start = models.DateField()
     period_end = models.DateField()
+    customer_id_snapshot = models.PositiveBigIntegerField(null=True, blank=True)
+    customer_snapshot = models.JSONField(default=dict, blank=True)
+    discount_snapshot = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=16, choices=InvoiceStatus.choices, default=InvoiceStatus.DRAFT)
     currency = models.CharField(max_length=3, default="INR")
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
@@ -38,7 +42,7 @@ class Invoice(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=("subscription", "period_start"),
-                name="inv_sub_period_uq",
+                name="inv_sub_period_start_uq",
             ),
             models.CheckConstraint(
                 check=Q(period_end__gt=F("period_start")),
@@ -56,7 +60,7 @@ class Invoice(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self):
-        return f"Invoice {self.pk} ({self.status})"
+        return f"{self.invoice_number} ({self.status})"
 
 
 class InvoiceLine(models.Model):
@@ -73,9 +77,10 @@ class InvoiceLine(models.Model):
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     source_type = models.CharField(max_length=32, blank=True)
-    # Catalog records currently use integer IDs; store a string so invoice
-    # snapshots can also reference future UUID-backed sources without coercion.
     source_id = models.CharField(max_length=64, null=True, blank=True)
+    product_id_snapshot = models.CharField(max_length=64, blank=True)
+    product_name_snapshot = models.CharField(max_length=255, blank=True)
+    variant_label_snapshot = models.CharField(max_length=255, blank=True)
 
     class Meta:
         constraints = [
@@ -119,3 +124,41 @@ class InvoiceLine(models.Model):
 
     def __str__(self):
         return f"{self.invoice_id} line {self.line_number}: {self.description}"
+
+
+class InvoiceNumberSequence(models.Model):
+    """One allocation row per invoice; the database-generated PK is the sequence."""
+
+    allocated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("pk",)
+
+
+class DocumentJob(models.Model):
+    class Kind(models.TextChoices):
+        INVOICE_PDF = "invoice_pdf", "Invoice PDF"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="document_jobs")
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.INVOICE_PDF)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED, db_index=True)
+    dedupe_key = models.CharField(max_length=200, unique=True)
+    attempts = models.PositiveIntegerField(default=0)
+    storage_key = models.CharField(max_length=512, blank=True)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.kind} for {self.invoice.invoice_number} ({self.status})"

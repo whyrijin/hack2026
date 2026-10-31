@@ -52,7 +52,7 @@ INSTALLED_APPS = [
     'quotations',
     'subscriptions',
     'billing',
-    'billing_jobs',
+    'payments',
     'discounts',
     'payments',
     'analytics',
@@ -171,6 +171,7 @@ REST_FRAMEWORK = {
 }
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'no-reply@localhost'
+BILLING_PERIOD_PRICING_PROVIDER = 'products.services.billing_adapter.price_subscription_period'
 
 CELERY_BEAT_SCHEDULE = {
     'discounts-expire-reservations': {
