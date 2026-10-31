@@ -1,7 +1,11 @@
 import React, { useState } from 'react'
 import { Eye, EyeOff, Lock, Mail, Loader2, AlertCircle, X, CheckCircle2, Info } from 'lucide-react'
 
-export const LoginForm: React.FC = () => {
+interface LoginFormProps {
+  onNavigateToSignup?: () => void
+}
+
+export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
@@ -348,13 +352,17 @@ export const LoginForm: React.FC = () => {
         <div className="text-center">
           <button
             type="button"
-            onClick={() =>
-              setDialogNotice({
-                title: 'Account Registration',
-                message:
-                  'Self-serve workspace registration will be activated in the next development phase.',
-              })
-            }
+            onClick={() => {
+              if (onNavigateToSignup) {
+                onNavigateToSignup()
+              } else {
+                setDialogNotice({
+                  title: 'Account Registration',
+                  message:
+                    'Self-serve workspace registration will be activated in the next development phase.',
+                })
+              }
+            }}
             className="w-full py-2.5 px-4 rounded-xl border border-[#E5E7EB] bg-slate-50/60 hover:bg-slate-100 text-[#172033] font-semibold text-xs sm:text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[#4965F5]"
           >
             Create an account

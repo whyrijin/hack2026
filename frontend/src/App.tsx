@@ -1,10 +1,32 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { BrandLogo } from './components/BrandLogo.tsx'
 import { SubscriptionIllustration } from './components/SubscriptionIllustration.tsx'
 import { LoginForm } from './components/LoginForm.tsx'
+import { SignupForm } from './components/SignupForm.tsx'
 import { CheckCircle2, ShieldCheck, Zap } from 'lucide-react'
 
 export const App: React.FC = () => {
+  // Support state-based switching with hash/path detection fallback
+  const [currentScreen, setCurrentScreen] = useState<'login' | 'signup'>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.toLowerCase()
+      const search = window.location.search.toLowerCase()
+      if (hash.includes('signup') || search.includes('signup') || search.includes('register')) {
+        return 'signup'
+      }
+    }
+    return 'login'
+  })
+
+  // Sync hash when screen changes so users can bookmark or reload
+  useEffect(() => {
+    if (currentScreen === 'signup') {
+      window.history.replaceState(null, '', '#signup')
+    } else {
+      window.history.replaceState(null, '', '#login')
+    }
+  }, [currentScreen])
+
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F7F9FC] overflow-x-hidden">
       {/* ========================================================= */}
@@ -89,10 +111,10 @@ export const App: React.FC = () => {
       </section>
 
       {/* ========================================================= */}
-      {/* RIGHT COLUMN: CLEAN MODERN LOGIN CARD                     */}
+      {/* RIGHT COLUMN: CLEAN MODERN AUTH CARD (LOGIN / SIGNUP)     */}
       {/* ========================================================= */}
       <main
-        aria-label="BrightLoop Sign In"
+        aria-label={currentScreen === 'signup' ? 'BrightLoop Sign Up' : 'BrightLoop Sign In'}
         className="lg:w-1/2 xl:w-[48%] flex flex-col justify-center items-center p-6 sm:p-10 lg:p-14"
       >
         {/* Mobile branding header displayed on mobile devices */}
@@ -100,8 +122,12 @@ export const App: React.FC = () => {
           <BrandLogo variant="light" size="md" />
         </div>
 
-        {/* Interactive Login Form Card */}
-        <LoginForm />
+        {/* Conditional rendering between Login and Signup */}
+        {currentScreen === 'signup' ? (
+          <SignupForm onNavigateToLogin={() => setCurrentScreen('login')} />
+        ) : (
+          <LoginForm onNavigateToSignup={() => setCurrentScreen('signup')} />
+        )}
       </main>
     </div>
   )
