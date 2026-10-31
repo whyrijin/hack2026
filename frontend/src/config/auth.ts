@@ -8,7 +8,7 @@ export const AUTH_CONFIG = {
   baseURL:
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_API_URL ||
-    'http://localhost:8000',
+    '',
   endpoints: {
     login: import.meta.env.VITE_AUTH_LOGIN_ENDPOINT || '/api/v1/auth/login',
     register: import.meta.env.VITE_AUTH_REGISTER_ENDPOINT || '/api/v1/auth/register',

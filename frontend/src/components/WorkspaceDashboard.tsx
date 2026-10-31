@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useAuth } from '../context/useAuth.ts'
 import { BrandLogo } from './BrandLogo.tsx'
 import { RoleProtectedRoute } from './ProtectedRoute.tsx'
+import { SubscriptionWorkspace } from './SubscriptionWorkspace.tsx'
 import type { UserRole } from '../types/auth.ts'
 import {
   LogOut,
@@ -13,7 +14,6 @@ import {
   CheckCircle2,
   Lock,
   Loader2,
-  Users,
   Settings,
 } from 'lucide-react'
 
@@ -287,20 +287,7 @@ export const WorkspaceDashboard: React.FC = () => {
             roles={['staff', 'admin']}
             onAccessDenied={() => setActiveTab('overview')}
           >
-            <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-xs p-6 animate-in fade-in space-y-4">
-              <div className="flex items-center gap-2 text-[#4965F5]">
-                <Users className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-[#172033]">Staff Operations &amp; Customer Support</h3>
-              </div>
-              <p className="text-sm text-slate-600">
-                Staff portal for managing subscription plans, overrides, manual renewals, and customer dunning
-                interventions.
-              </p>
-              <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-100 text-xs text-blue-900">
-                Authorized for roles: <strong>Staff, Admin</strong>. Currently authenticated as:{' '}
-                <strong className="capitalize">{currentRole}</strong>.
-              </div>
-            </div>
+            <SubscriptionWorkspace />
           </RoleProtectedRoute>
         )}
 
