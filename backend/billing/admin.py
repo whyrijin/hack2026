@@ -1,3 +1,47 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import Invoice, InvoiceLine
+
+
+class InvoiceLineInline(admin.TabularInline):
+    model = InvoiceLine
+    extra = 0
+    can_delete = False
+    readonly_fields = tuple(field.name for field in InvoiceLine._meta.fields)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = ("id", "subscription", "period_start", "period_end", "status", "total", "currency")
+    list_filter = ("status", "currency")
+    inlines = (InvoiceLineInline,)
+    readonly_fields = (
+        "id", "subscription", "period_start", "period_end", "status", "currency", "subtotal",
+        "discount_total", "tax_total", "total", "due_date", "confirmed_at", "paid_at", "cancelled_at",
+        "created_at", "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(InvoiceLine)
+class InvoiceLineAdmin(admin.ModelAdmin):
+    list_display = ("invoice", "line_number", "description", "quantity", "total_amount")
+    search_fields = ("description",)
+    readonly_fields = tuple(field.name for field in InvoiceLine._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

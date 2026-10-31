@@ -1,0 +1,4 @@
+Your invoice {{ invoice_id }} is confirmed.
+
+Amount due: {{ total }} {{ currency }}
+Billing period: {{ period_start }} to {{ period_end }}

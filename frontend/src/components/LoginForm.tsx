@@ -1,11 +1,15 @@
 import React, { useState } from 'react'
 import { Eye, EyeOff, Lock, Mail, Loader2, AlertCircle, X, CheckCircle2, Info } from 'lucide-react'
+import { useAuth } from '../context/useAuth.ts'
+import { formatApiError } from '../api/auth.ts'
 
 interface LoginFormProps {
   onNavigateToSignup?: () => void
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
+  const { login } = useAuth()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
@@ -58,7 +62,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
   }
 
   // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     const emailError = validateEmail(email)
@@ -74,23 +78,36 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
       return
     }
 
-    // Trigger realistic submission state
     setIsLoading(true)
     setErrors({})
 
-    // In this frontend-only scope, validate credentials or provide appropriate error state
-    setTimeout(() => {
-      setIsLoading(false)
-      // Provide clear feedback for demo or simulated test inputs
-      if (email.toLowerCase().includes('fail') || email.toLowerCase().includes('error')) {
-        setErrors({
-          general: 'Invalid email or password. Please verify your credentials and try again.',
-        })
-      } else {
-        // Successful client-side submission state ready for Django JWT API integration
-        setLoginSuccess(true)
+    try {
+      await login({
+        email: email.trim(),
+        password,
+        remember_me: rememberMe,
+      })
+      setLoginSuccess(true)
+    } catch (err: unknown) {
+      const formatted = formatApiError(err)
+      const newErrors: { email?: string; password?: string; general?: string } = {
+        general: formatted.message,
       }
-    }, 1200)
+
+      if (formatted.fieldErrors) {
+        if (formatted.fieldErrors.email) {
+          newErrors.email = formatted.fieldErrors.email[0]
+        }
+        if (formatted.fieldErrors.password) {
+          newErrors.password = formatted.fieldErrors.password[0]
+        }
+      }
+
+      setErrors(newErrors)
+      setLoginSuccess(false)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -141,7 +158,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
           </p>
         </div>
 
-        {/* Success Banner (when credentials pass frontend validation) */}
+        {/* Success Banner */}
         {loginSuccess ? (
           <div
             role="status"
@@ -149,18 +166,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
           >
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <div className="flex-1 text-sm">
-              <p className="font-semibold text-emerald-900">Validation Passed</p>
+              <p className="font-semibold text-emerald-900">Signed In Successfully</p>
               <p className="text-emerald-700 mt-0.5 text-xs leading-relaxed">
-                Frontend authentication check succeeded. Ready to connect to Django JWT endpoint (
-                <code>POST /api/token/</code>).
+                Loading your BrightLoop workspace session...
               </p>
-              <button
-                type="button"
-                onClick={() => setLoginSuccess(false)}
-                className="mt-2 text-xs font-semibold text-emerald-800 underline hover:text-emerald-950"
-              >
-                Reset form
-              </button>
             </div>
           </div>
         ) : null}
@@ -247,7 +256,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
                   setDialogNotice({
                     title: 'Password Reset',
                     message:
-                      'Password recovery will be enabled once the backend authentication service is connected.',
+                      'Password recovery will be enabled once the backend password reset service is activated.',
                   })
                 }
                 className="text-xs font-semibold text-[#4965F5] hover:text-[#3852de] hover:underline focus:outline-none focus:ring-2 focus:ring-[#4965F5] rounded"
@@ -377,4 +386,3 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onNavigateToSignup }) => {
     </div>
   )
 }
-

@@ -3,18 +3,25 @@
 | Metadata | Value |
 |---|---|
 | Phase | Foundations, Hour 1 |
-| Status | Proposal for review; not team-approved yet |
+| Status | Implementation in progress; Rijin and Aby approved, team-wide email/status decisions pending |
 | Owners | Rijin (invoice integration), Aby (discount service), all developers (email and shared status vocabulary) |
 | Applies to | Django backend: `subscriptions`, `billing`, `discounts`, and Celery email tasks |
 
-This document turns the Hour 1 integration points into concrete, reviewable interfaces. Confirm the open choices with the named teammates before treating the contracts as frozen. No production implementation is implied by this proposal.
+This document turns the Hour 1 integration points into concrete, reviewable interfaces. Rijin and Aby have accepted their respective contracts, as reported by the project owner. Email and invoice-status decisions remain pending team-wide confirmation. Foundational code now follows this proposal; the unresolved decisions remain subject to revision.
+
+### Review record
+
+| Reviewer | Scope | Decision | Date |
+|---|---|---|---|
+| Rijin Reji | Invoice generation contract | Accepted (reported by project owner) | 2026-10-31 |
+| Aby John | Discount reservation contract | Accepted (reported by project owner) | 2026-10-31 |
 
 ## 1. Shared conventions
 
 - Use Python `UUID` for model identifiers, `date` for billing period boundaries, `Decimal` for money, and timezone-aware `datetime` for event timestamps.
 - Service functions raise documented domain exceptions for invalid input or state. They must not return ambiguous `None` for failures.
 - Operations that change invoice or discount state run in `transaction.atomic()`.
-- Retrying a request or Celery task must not create duplicate invoices, consume a discount twice, or send the same logical email twice.
+- Retrying a request or Celery task must not create duplicate invoices, consume a discount twice, or create duplicate outbox records. Email delivery through SMTP is at-least-once; a worker crash after the mail server accepts a message but before the sent state commits can result in a duplicate delivery.
 
 ## 2. Invoice generation — confirm with Rijin
 
@@ -29,7 +36,9 @@ def create_invoice_for_period(
     ...
 ```
 
-Suggested location: `backend/billing/services/invoices.py`.
+Location: `backend/billing/services/invoices.py`. It calls the dotted callable configured by `BILLING_PERIOD_PRICING_PROVIDER`; that adapter must call Aby's authoritative `calculate_price` service and return its documented pricing result. This project currently has no catalog models or pricing engine, so configure the provider when that integration lands.
+
+Provider shape: `price_subscription_period(subscription, period_start, period_end) -> dict`, matching the output structure in `aby-catalog-pricing-contract.md`. Invoice generation validates that line snapshots reconcile with the pricing totals before creating the invoice.
 
 ### Proposed behavior
 
@@ -104,7 +113,7 @@ Suggested location: `backend/notifications/services.py`; the Celery task that re
 
 - `template` is a registered template key, not an arbitrary file path. `recipient` is a single email address. `context` must be JSON-serializable. `dedupe_key` is a required stable key for one logical notification.
 - Persist an email/outbox record with a unique `dedupe_key`. Enqueue delivery with `transaction.on_commit()` so workers cannot send an email for a transaction that later rolls back.
-- A repeated call with the same key and same content returns the existing result and does not create another send. Reusing a key for different template/recipient/context raises `EmailDedupeConflict`.
+- A repeated call with the same key and same content returns the existing result and does not create another outbox record. Reusing a key for different template/recipient/context raises `EmailDedupeConflict`. Delivery is at-least-once because SMTP and the database cannot share one atomic transaction.
 - Return an `EmailQueueResult` containing the outbox/email ID and whether it was newly queued or already existed. Mail transport failures are handled by Celery retry and recorded on the outbox row; they do not make the business transaction fail.
 
 ### Team decision for everyone
@@ -135,14 +144,84 @@ Suggested transition rules:
 
 `create_invoice_for_period` creates `Draft`. Only a successful payment event may move `Confirmed` to `Paid`. Enforce transitions in a domain method/service, not only in UI code. Do not add alternate spellings or lowercase values. Other models may have their own statuses; this frozen set is for invoices unless the team explicitly decides otherwise.
 
-## 6. Hour 1 completion checklist
+## 6. Proposed model design
 
-Before implementation begins, record each decision in this document or in the team's agreed design record:
+These are MVP model proposals to review alongside the service contracts. Use UUID primary keys and `created_at` timestamps. Monetary values use `DecimalField(max_digits=12, decimal_places=2)`; do not use floating-point fields for money.
 
-- [ ] Rijin confirms the invoice signature, period semantics, idempotency, and eligibility rules.
-- [ ] Aby confirms the discount signatures, reservation identity, consume point, and expiry behavior.
+### `Invoice` (`billing` app)
+
+| Field | Proposed type / rule | Purpose |
+|---|---|---|
+| `id` | UUID primary key | Stable public identifier. |
+| `subscription` | Foreign key to `subscriptions.Subscription`, `PROTECT`, related name `invoices` | Owning subscription; preserve billing history if a subscription is removed. |
+| `period_start`, `period_end` | `DateField` | Start-inclusive/end-exclusive billing period. |
+| `status` | `CharField(16)`, choices `Draft`, `Confirmed`, `Paid`, `Cancelled`; default `Draft` | Invoice lifecycle. |
+| `currency` | `CharField(3)` | Currency snapshot for the invoice. |
+| `subtotal`, `discount_total`, `tax_total`, `total` | `DecimalField(12, 2)`, default `0.00` | Invoice-level monetary snapshots. |
+| `due_date` | Nullable `DateField` | Payment deadline, if applicable. |
+| `confirmed_at`, `paid_at`, `cancelled_at` | Nullable `DateTimeField` | Lifecycle audit timestamps. |
+| `created_at`, `updated_at` | `DateTimeField` | Record timestamps. |
+
+Database constraints: unique `(subscription, period_start, period_end)`; check `period_end > period_start`; check all invoice totals are nonnegative. Model/service validation enforces allowed status transitions.
+
+### `InvoiceLine` (`billing` app)
+
+| Field | Proposed type / rule | Purpose |
+|---|---|---|
+| `id` | UUID primary key | Stable line identifier. |
+| `invoice` | Foreign key to `Invoice`, `CASCADE`, related name `lines` | Parent invoice. |
+| `line_number` | `PositiveIntegerField` | Stable display order; unique within one invoice. |
+| `description` | `CharField(255)` | Description snapshot shown on the invoice. |
+| `quantity` | `DecimalField(12, 3)` | Quantity snapshot. |
+| `unit_price`, `gross_amount`, `discount_amount`, `taxable_amount`, `tax_amount`, `total_amount` | `DecimalField(12, 2)` | Immutable pricing snapshots from the authoritative pricing service. |
+| `tax_rate` | Nullable `DecimalField(7, 4)` | Applied rate snapshot for audit/display. |
+| `source_type`, `source_id` | Nullable `CharField(32)` and UUID | Optional pointer to the plan/product without making historical lines depend on a live catalog row. |
+
+Database constraints: unique `(invoice, line_number)`; `quantity > 0`; monetary line values are nonnegative. Invoice lines become immutable after the invoice leaves `Draft`; enforce that rule through the billing service/model validation.
+
+### `DiscountReservation` (`discounts` app)
+
+| Field | Proposed type / rule | Purpose |
+|---|---|---|
+| `id` | UUID primary key | Reservation identifier. |
+| `discount_rule` | Foreign key to `DiscountRule`, `PROTECT`, related name `reservations` | Rule whose quota is held. |
+| `quote_id` | UUID field | Owning quote key; avoids requiring the quotations model to be ready first. |
+| `status` | `CharField(16)` with `reserved`, `consumed`, `released` | Reservation lifecycle, separate from invoice statuses. |
+| `expires_at`, `consumed_at`, `released_at` | Nullable `DateTimeField` | Reservation expiry and audit timestamps. |
+| `release_reason` | Blankable `CharField(255)` | Why the reservation was released (for example, cancellation or expiry). |
+| `invoice_id` | Nullable UUID field | Invoice that consumed the reservation, if applicable. |
+| `created_at`, `updated_at` | `DateTimeField` | Record timestamps. |
+
+Database constraint: unique `(discount_rule, quote_id)`. Counter changes and reservation status changes must occur in the same atomic transaction. Confirm whether `invoice_id` should become a foreign key after the billing schema is approved.
+
+### `EmailOutbox` (`notifications` app, if approved)
+
+| Field | Proposed type / rule | Purpose |
+|---|---|---|
+| `id` | UUID primary key | Queue record identifier. |
+| `template` | `CharField(100)` | Registered template key. |
+| `recipient` | `EmailField` | One recipient per message. |
+| `context` | `JSONField` | Serializable template values. |
+| `dedupe_key` | `CharField(200)`, unique | Idempotency key for one logical email. |
+| `status` | `CharField(16)` with `queued`, `sending`, `sent`, `failed` | Delivery state. |
+| `attempts` | `PositiveIntegerField`, default `0` | Retry tracking. |
+| `last_error` | Blankable text | Most recent delivery failure. |
+| `created_at`, `sending_at`, `sent_at` | `DateTimeField`, delivery timestamps nullable | Queue, active-delivery lease, and completion timestamps. |
+
+Create the outbox row in the business transaction and publish its task on commit. Reusing a dedupe key with a different template, recipient, or context is a conflict. Team must confirm this model is in the MVP scope.
+
+## 7. Implementation status and remaining work
+
+Implemented in this branch: invoice and line models, discount rule and reservation models/services, the email outbox and Celery tasks, invoice status transitions, and initial migrations. Invoice creation is wired to a configurable `BILLING_PERIOD_PRICING_PROVIDER`; the catalog and authoritative pricing service are not present yet, so invoice creation will raise `InvoicePricingNotConfigured` until that adapter is implemented and configured. Email delivery uses the console backend in containers by default; SMTP can be configured with environment variables.
+
+## 8. Hour 1 completion checklist
+
+To close H1, record each remaining decision in this document or in the team's agreed design record:
+
+- [x] Rijin confirms the invoice signature, period semantics, idempotency, and eligibility rules.
+- [x] Aby confirms the discount signatures, reservation identity, consume point, and expiry behavior.
 - [ ] Everyone confirms email signature, outbox/dedupe behavior, and template naming.
 - [ ] Everyone confirms the four invoice status values and transition table.
 - [ ] Update the status at the top of this document to `Approved` and add the date and approvers.
 
-After approval, implementation can proceed in this order: define shared constants/errors and model fields; add uniqueness constraints and migrations; implement invoice and discount services; implement the email outbox and Celery task; wire status transitions; then add integration tests for retries, concurrent discount claims, and invalid transitions.
+Remaining implementation can proceed in this order: implement Aby's catalog pricing provider; wire invoice confirmation/payment events to discount consumption and email queuing; then add integration tests for retries, concurrent discount claims, and invalid transitions.
