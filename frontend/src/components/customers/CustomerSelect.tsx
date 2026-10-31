@@ -151,16 +151,14 @@ export const CustomerSelect: React.FC<CustomerSelectProps> = ({
 
         <div className="flex items-center gap-1 shrink-0 text-slate-400">
           {selectedCustomer && !disabled && (
-            <span
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
               onClick={handleClear}
-              onKeyDown={(e) => e.key === 'Enter' && handleClear(e as unknown as React.MouseEvent)}
               className="p-1 hover:text-slate-600 rounded-md transition-colors"
               title="Clear selection"
             >
               <X className="w-3.5 h-3.5" />
-            </span>
+            </button>
           )}
           <ChevronDown
             className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-[#4965F5]' : ''}`}

@@ -117,6 +117,7 @@ export const AdminDashboard: React.FC = () => {
   const [datePreset, setDatePreset] = useState<DatePreset>('30d')
   const [chartView, setChartView] = useState<'monthly' | 'daily'>('monthly')
   const [overdueList] = useState<OverdueInvoice[]>(INITIAL_OVERDUE_INVOICES)
+  const [sentReminders, setSentReminders] = useState<Record<string, boolean>>({})
   const [searchOverdue, setSearchOverdue] = useState('')
   const [agingFilter, setAgingFilter] = useState<'all' | '1-15' | '16-30' | '30+'>('all')
   const [toastMessage, setToastMessage] = useState<string | null>(null)
@@ -127,8 +128,65 @@ export const AdminDashboard: React.FC = () => {
   }
 
   const handleSendReminder = (invoice: OverdueInvoice) => {
+    setSentReminders((prev) => ({ ...prev, [invoice.id]: true }))
     showToast(`Payment reminder dispatched to ${invoice.customerName} (${invoice.company}).`)
   }
+
+  const kpiData = useMemo(() => {
+    switch (datePreset) {
+      case '7d':
+        return {
+          billed: '$47,400',
+          growth: '+5.2%',
+          collected: '$44,800',
+          rate: '94.5% Collection Rate',
+          outstanding: '$2,600',
+          overdueCount: '4 invoices',
+          overdueAmount: '$1,850.00 at risk',
+        }
+      case 'quarter':
+        return {
+          billed: '$408,250',
+          growth: '+14.8%',
+          collected: '$387,400',
+          rate: '94.9% Collection Rate',
+          outstanding: '$20,850',
+          overdueCount: '22 invoices',
+          overdueAmount: '$5,890.00 at risk',
+        }
+      case 'ytd':
+        return {
+          billed: '$1,280,000',
+          growth: '+18.1%',
+          collected: '$1,215,000',
+          rate: '94.9% Collection Rate',
+          outstanding: '$65,000',
+          overdueCount: '35 invoices',
+          overdueAmount: '$8,200.00 at risk',
+        }
+      case 'all':
+        return {
+          billed: '$1,780,000',
+          growth: '+22.4%',
+          collected: '$1,691,400',
+          rate: '95.0% Collection Rate',
+          outstanding: '$88,600',
+          overdueCount: '42 invoices',
+          overdueAmount: '$11,400.00 at risk',
+        }
+      case '30d':
+      default:
+        return {
+          billed: '$148,250',
+          growth: '+12.1% growth',
+          collected: '$139,400',
+          rate: '94.0% Collection Rate',
+          outstanding: '$8,850',
+          overdueCount: '14 invoices',
+          overdueAmount: '$3,420.00 at risk',
+        }
+    }
+  }, [datePreset])
 
   // Filter overdue invoices
   const filteredOverdue = useMemo(() => {
@@ -230,11 +288,11 @@ export const AdminDashboard: React.FC = () => {
                 <DollarSign className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-black text-[#172033]">$148,250</div>
+            <div className="text-2xl font-black text-[#172033]">{kpiData.billed}</div>
           </div>
           <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold mt-3">
             <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>+12.1% growth</span>
+            <span>{kpiData.growth}</span>
           </div>
         </div>
 
@@ -247,11 +305,11 @@ export const AdminDashboard: React.FC = () => {
                 <CreditCard className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-black text-[#172033]">$139,400</div>
+            <div className="text-2xl font-black text-[#172033]">{kpiData.collected}</div>
           </div>
           <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold mt-3">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>94.0% Collection Rate</span>
+            <span>{kpiData.rate}</span>
           </div>
         </div>
 
@@ -264,7 +322,7 @@ export const AdminDashboard: React.FC = () => {
                 <Clock className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-black text-[#172033]">$8,850</div>
+            <div className="text-2xl font-black text-[#172033]">{kpiData.outstanding}</div>
           </div>
           <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold mt-3">
             <ArrowDownRight className="w-3.5 h-3.5" />
@@ -283,10 +341,10 @@ export const AdminDashboard: React.FC = () => {
                 <AlertTriangle className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-black text-red-700">14 invoices</div>
+            <div className="text-2xl font-black text-red-700">{kpiData.overdueCount}</div>
           </div>
           <div className="text-xs text-red-600 font-semibold mt-3">
-            $3,420.00 at risk
+            {kpiData.overdueAmount}
           </div>
         </div>
       </div>
@@ -512,14 +570,21 @@ export const AdminDashboard: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleSendReminder(inv)}
-                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-[#4965F5] hover:bg-[#3D54D4] text-white text-[11px] font-semibold transition-colors shadow-2xs"
-                      >
-                        <Send className="w-3 h-3" />
-                        <span>Send Reminder</span>
-                      </button>
+                      {sentReminders[inv.id] ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Dispatched</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSendReminder(inv)}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-[#4965F5] hover:bg-[#3D54D4] text-white text-[11px] font-semibold transition-colors shadow-2xs"
+                        >
+                          <Send className="w-3 h-3" />
+                          <span>Send Reminder</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
