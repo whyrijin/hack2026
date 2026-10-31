@@ -2,7 +2,7 @@
 
 ## Current state
 
-The repository has a README and MIT license but no application, dependency manifests, lockfiles, tests, build commands, database, containers, infrastructure, or deployment target. `main` is the only existing branch. The workflows are a starting point, not a production deployment system: a green check currently says only that workflow lint and secret scanning passed. It does not establish application quality or deployability.
+The repository now contains a React/TypeScript frontend, a Django REST backend, PostgreSQL, Redis, Celery worker/Beat services, and a Docker Compose setup for local demonstrations. The GitHub Actions workflows still check workflow syntax and scan repository history for secrets; they do not yet install application dependencies, run application checks, or build the frontend/backend. No public deployment target or deployment workflow is configured, so a green check does not establish application quality or deployability.
 
 ## Architecture and execution
 
@@ -15,12 +15,13 @@ flowchart LR
   Queue[Merge queue] --> CI
   Queue --> Security
   Schedule[Weekly or manual run] --> Security
-  CI -. future: add tests and build .-> Gate[Protected branch checks]
+  Compose[Docker Compose local stack] --> App[React + Django + PostgreSQL + Redis + Celery]
+  CI -. future: add application checks and builds .-> Gate[Protected branch checks]
   Security --> Gate
   Gate -. future: verified release .-> Deploy[Staging or production]
 ```
 
-- **CI / Workflow lint** checks GitHub Actions files with actionlint. The downloaded Linux binary is versioned and checksum verified; checkout is pinned to a commit. There is no package cache because there are no package dependencies.
+- **CI / Workflow lint** checks GitHub Actions files with actionlint. The downloaded Linux binary is versioned and checksum verified; checkout is pinned to a commit. The workflow does not install application dependencies or build the project.
 - **Security / Secret scan** uses the Gitleaks CLI on push, pull requests, merge queues, weekly, and manual dispatch. It scans the history reachable from the checked-out commit and fails on findings, with secrets redacted from logs. The scanner release is checksum verified. Fork PRs use the ordinary `pull_request` event with read-only token permissions and no deployment credentials. A scheduled run checks the default branch only.
 - **Dependabot** proposes weekly updates to GitHub Actions pins. The actionlint and Gitleaks binary versions and SHA-256 checksums must be updated together manually after verifying the upstream release.
 - Concurrent runs for the same event and PR or branch are cancelled when a newer run starts. Separate push and PR runs can occur when directly pushing a protected branch that is also the source of a PR; ordinary fork feature branches do not trigger the push workflows.
@@ -43,7 +44,7 @@ Branch protection is configured on GitHub, not enforced by the workflows alone. 
 
 No user-provided secrets are currently required. GitHub supplies a token with read-only contents permission for checkout; the Gitleaks CLI does not require an action license or credentials. Fork PRs do not receive repository secrets. Never switch to privileged execution of fork code to make a scan pass.
 
-No application environment variables, GitHub environments, credentials, or deployment secrets have been defined. When a real host is selected, store credentials as environment-scoped GitHub Secrets, use separate staging and production identities with least privilege, and document every required secret and non-secret variable by its actual name. Do not commit `.env` files or credentials.
+The local Compose stack reads `DJANGO_SECRET_KEY` and `POSTGRES_PASSWORD` from a private root `.env`; see the README for setup. Do not put those values in GitHub or commit `.env`. GitHub deployment environments, deployment credentials, and a deployment host have not been configured. When a host is selected, store credentials as environment-scoped GitHub Secrets, use separate staging and production identities with least privilege, and document each required variable by its actual name.
 
 ## Local verification
 
@@ -54,11 +55,11 @@ actionlint -color
 gitleaks git --redact .
 ```
 
-The second command scans history reachable from the current checkout; it may differ from the commit checked out in CI. Neither command runs application tests or a build because none exist. Gitleaks may identify a candidate secret: rotate/revoke exposed credentials immediately, even if the finding is later removed from the current tree. Inspect findings securely and use narrowly scoped exceptions only after review.
+The second command scans history reachable from the current checkout; it may differ from the commit checked out in CI. These commands validate workflows and scan secrets; they do not run the Django checks, frontend build, or Compose smoke checks. Gitleaks may identify a candidate secret: rotate/revoke exposed credentials immediately, even if the finding is later removed from the current tree. Inspect findings securely and use narrowly scoped exceptions only after review.
 
 ## Adding application CI
 
-When source code is added, choose the runtime and package manager actually used, commit the lockfile, and add jobs to `ci.yml` for clean dependency installation, lint, formatting, static analysis and types where applicable, unit and relevant integration/API tests, and a production build. Use the project's real commands and publish test reports even when tests fail, without masking failures. Add service containers only for real integration dependencies. Cache package downloads keyed by the lockfile and runtime, not secrets or built releases. Add dependency vulnerability scanning and language-appropriate code security analysis, and require all critical checks in branch protection before deploying.
+Extend `ci.yml` with clean installs from the committed Python requirements and npm lockfile, Django system and migration checks, backend tests, frontend lint/type checks and production build, plus a PostgreSQL/Redis-backed integration job where needed. Use the project's real commands and publish test reports even when checks fail. Cache package downloads keyed by the lockfile and runtime, not secrets or built releases. Add dependency vulnerability scanning and language-appropriate code security analysis, and require the chosen checks in branch protection before deploying.
 
 ## Deployment, health checks and recovery
 
@@ -72,7 +73,7 @@ To implement it safely:
 4. Define and test a host-specific rollback that restores a retained known-good artifact and verifies its health. Until then, rollback requires an operator to restore a previous known-good release using the host's documented procedure; no command is available in this repository.
 5. Before database migrations, take and test backups, assess compatibility with both old and new application versions, and prefer expand/contract migrations. Document recovery and whether a release can safely be rolled back after migration. Never automatically reverse an unknown or destructive migration.
 
-Add Docker only if the chosen runtime or host requires it; if added, use a minimal multi-stage image, a non-root user where supported, persistent database storage, and application-aware health and startup checks.
+Docker Compose is for local startup and demonstration; it does not publish images or deploy them to a public host. For a hosted deployment, select an immutable image registry and target, then add application-aware release and rollback steps. The current Dockerfiles use multi-stage builds, non-root runtime users, persistent PostgreSQL storage, migration ordering, and service health checks.
 
 ## Troubleshooting
 

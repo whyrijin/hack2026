@@ -37,7 +37,7 @@ class Invoice(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=("subscription", "period_start", "period_end"),
+                fields=("subscription", "period_start"),
                 name="inv_sub_period_uq",
             ),
             models.CheckConstraint(
@@ -73,7 +73,9 @@ class InvoiceLine(models.Model):
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     source_type = models.CharField(max_length=32, blank=True)
-    source_id = models.UUIDField(null=True, blank=True)
+    # Catalog records currently use integer IDs; store a string so invoice
+    # snapshots can also reference future UUID-backed sources without coercion.
+    source_id = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
         constraints = [

@@ -1,30 +1,26 @@
+from django.core.validators import MinValueValidator
 from django.db import models
 
 
+
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 
 
 class QuoteTemplate(models.Model):
-    """
-    Reusable quotation blueprint for creating subscriptions and quotes.
-    """
+    """Reusable quotation blueprint for creating subscriptions and quotes."""
 
-    title = models.CharField(
-        max_length=255,
-        unique=True,
-    )
+    name = models.CharField(max_length=160, unique=True)
 
-    associated_plan = models.ForeignKey(
+    plan = models.ForeignKey(
         "plans.Plan",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.PROTECT,
         related_name="quote_templates",
     )
 
-    validity_days = models.PositiveIntegerField(
-        default=30,
+    validity_days = models.PositiveSmallIntegerField(
+        default=14,
         validators=[MinValueValidator(1)],
     )
 
@@ -41,25 +37,44 @@ class QuoteTemplate(models.Model):
         default="",
     )
 
-    is_active = models.BooleanField(
-        default=True,
-        db_index=True,
-    )
+    is_active = models.BooleanField(default=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Compatibility with the existing admin configuration.
+    @property
+    def title(self):
+        return self.name
+
+    @property
+    def associated_plan(self):
+        return self.plan
+
+    @property
+    def active(self):
+        return self.is_active
+
+    @property
+    def default_lines(self):
+        return [
+            {
+                "product_id": line.product_id,
+                "variant_id": line.variant_id,
+                "quantity": line.quantity,
+            }
+            for line in self.lines.all()
+        ]
+
     def __str__(self):
-        return self.title
+        return self.name
 
     class Meta:
-        ordering = ["title"]
+        ordering = ["name"]
 
 
 class TemplateLine(models.Model):
-    """
-    Product line included in a quotation template.
-    """
+    """Product line included in a quotation template."""
 
     template = models.ForeignKey(
         QuoteTemplate,
@@ -70,7 +85,7 @@ class TemplateLine(models.Model):
     product = models.ForeignKey(
         "products.Product",
         on_delete=models.PROTECT,
-        related_name="+",
+        related_name="quote_template_lines",
     )
 
     variant = models.ForeignKey(
@@ -78,7 +93,6 @@ class TemplateLine(models.Model):
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        related_name="+",
     )
 
     quantity = models.PositiveIntegerField(
@@ -89,14 +103,17 @@ class TemplateLine(models.Model):
     taxes = models.ManyToManyField(
         "products.TaxRule",
         blank=True,
-        related_name="+",
+        related_name="quote_template_lines",
     )
 
-    sort_order = models.PositiveIntegerField(default=0)
+    position = models.PositiveSmallIntegerField(default=0)
+
+    # Compatibility with the existing admin configuration.
+    @property
+    def sort_order(self):
+        return self.position
 
     def clean(self):
-        from django.core.exceptions import ValidationError
-
         super().clean()
 
         if (
@@ -105,12 +122,16 @@ class TemplateLine(models.Model):
             and self.variant.product_id != self.product_id
         ):
             raise ValidationError({
-                "variant": "The selected variant does not belong to this product."
+                "variant": (
+                    "The selected variant does not belong to this product."
+                )
             })
 
     def __str__(self):
-        return f"{self.template.title} - {self.product.name}"
+        return (
+            f"{self.template.name}: "
+            f"{self.product.name} × {self.quantity}"
+        )
 
     class Meta:
-        ordering = ["sort_order", "id"]
-
+        ordering = ["position", "id"]

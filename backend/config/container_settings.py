@@ -39,6 +39,8 @@ STORAGES = {
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/1')
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TIMEZONE = os.environ.get('BUSINESS_TIME_ZONE', 'Asia/Kolkata')
+TIME_ZONE = CELERY_TIMEZONE
 
 # Enable these only behind a trusted TLS-terminating reverse proxy.
 SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'false').lower() == 'true'
@@ -59,4 +61,10 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
 EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() == 'true'
 EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '30'))
-BILLING_PERIOD_PRICING_PROVIDER = os.environ.get('BILLING_PERIOD_PRICING_PROVIDER', '')
+BILLING_PERIOD_PRICING_PROVIDER = os.environ.get(
+    'BILLING_PERIOD_PRICING_PROVIDER',
+    'billing_jobs.pricing.price_subscription_period',
+)
+SUBSCRIPTION_PRICING_PROVIDER = os.environ.get('SUBSCRIPTION_PRICING_PROVIDER', '')
+if not SUBSCRIPTION_PRICING_PROVIDER:
+    SUBSCRIPTION_PRICING_PROVIDER = 'products.services.calculate_price'

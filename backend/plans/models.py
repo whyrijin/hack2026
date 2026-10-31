@@ -1,4 +1,7 @@
+from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
+
 
 
 from decimal import Decimal
@@ -43,7 +46,7 @@ class Plan(models.Model):
     Subscription plan, billing cadence, and lifecycle permissions.
     """
 
-    class BillingCadence(models.TextChoices):
+    class Cadence(models.TextChoices):
         DAILY = "daily", "Daily"
         WEEKLY = "weekly", "Weekly"
         MONTHLY = "monthly", "Monthly"
@@ -64,8 +67,8 @@ class Plan(models.Model):
 
     billing_cadence = models.CharField(
         max_length=16,
-        choices=BillingCadence.choices,
-        default=BillingCadence.MONTHLY,
+        choices=Cadence.choices,
+        default=Cadence.MONTHLY,
     )
 
     minimum_quantity = models.PositiveIntegerField(
@@ -109,6 +112,32 @@ class Plan(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Compatibility properties used by existing project code.
+
+    @property
+    def cadence(self):
+        return self.billing_cadence
+
+    @property
+    def available_from(self):
+        return self.availability_start_date
+
+    @property
+    def available_until(self):
+        return self.availability_end_date
+
+    @property
+    def active(self):
+        return self.is_active
+
+    @property
+    def allow_early_close(self):
+        return self.allow_early_closure
+
+    @property
+    def auto_close_on_expiry(self):
+        return self.auto_close
+
     def clean(self):
         super().clean()
 
@@ -131,4 +160,3 @@ class Plan(models.Model):
 
     class Meta:
         ordering = ["name"]
-

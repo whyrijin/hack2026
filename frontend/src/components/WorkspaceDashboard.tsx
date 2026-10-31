@@ -2,18 +2,13 @@ import React, { useState } from 'react'
 import { useAuth } from '../context/useAuth.ts'
 import { BrandLogo } from './BrandLogo.tsx'
 import { RoleProtectedRoute } from './ProtectedRoute.tsx'
+import { SubscriptionWorkspace } from './SubscriptionWorkspace.tsx'
 import type { UserRole } from '../types/auth.ts'
 import {
   LogOut,
   User,
-  ShieldCheck,
-  TrendingUp,
-  CreditCard,
-  Layers,
   CheckCircle2,
-  Lock,
   Loader2,
-  Users,
   Settings,
 } from 'lucide-react'
 
@@ -161,67 +156,15 @@ export const WorkspaceDashboard: React.FC = () => {
                   Welcome to BrightLoop, {displayName}!
                 </h1>
                 <p className="text-sm text-slate-300 mt-2 leading-relaxed">
-                  Your subscription workspace is fully connected with in-memory JWT authentication, HttpOnly
-                  refresh token handling, and role-based route protection.
+                  View subscription activity, service dates, and account actions from one workspace.
                 </p>
-              </div>
-            </div>
-
-            {/* Metrics Overview */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white rounded-2xl p-5 border border-[#E5E7EB] shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block">
-                    Monthly Recurring
-                  </span>
-                  <span className="text-2xl font-black text-[#172033] mt-1 block">$128,450</span>
-                  <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1 mt-1">
-                    <TrendingUp className="w-3 h-3" />
-                    +24.8% vs last month
-                  </span>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#4965F5] flex items-center justify-center">
-                  <CreditCard className="w-5 h-5" />
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl p-5 border border-[#E5E7EB] shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block">
-                    Active Subscriptions
-                  </span>
-                  <span className="text-2xl font-black text-[#172033] mt-1 block">4,820</span>
-                  <span className="text-xs font-medium text-slate-500 mt-1 block">99.4% renewal rate</span>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-cyan-50 text-[#38BDF8] flex items-center justify-center">
-                  <Layers className="w-5 h-5" />
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl p-5 border border-[#E5E7EB] shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block">
-                    Billing Engine
-                  </span>
-                  <span className="text-2xl font-black text-[#172033] mt-1 block">Auto-Pilot</span>
-                  <span className="text-xs font-medium text-emerald-600 mt-1 block">Smart Dunning Active</span>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl p-5 border border-[#E5E7EB] shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block">
-                    Security Posture
-                  </span>
-                  <span className="text-2xl font-black text-[#172033] mt-1 block">Protected</span>
-                  <span className="text-xs font-medium text-slate-500 mt-1 block">In-Memory + HttpOnly</span>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                  <Lock className="w-5 h-5" />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(currentRole === 'customer' ? 'customer' : 'staff')}
+                  className="mt-5 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-[#101828] hover:bg-slate-100"
+                >
+                  Open {currentRole === 'customer' ? 'customer' : 'staff'} subscriptions
+                </button>
               </div>
             </div>
 
@@ -229,7 +172,7 @@ export const WorkspaceDashboard: React.FC = () => {
             <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-xs p-6">
               <div className="flex items-center gap-2 mb-4">
                 <User className="w-5 h-5 text-[#4965F5]" />
-                <h2 className="text-lg font-bold text-[#172033]">Authenticated Session Credentials</h2>
+                <h2 className="text-lg font-bold text-[#172033]">Account details</h2>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -248,9 +191,9 @@ export const WorkspaceDashboard: React.FC = () => {
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
-                  <span className="text-xs text-slate-500 block font-medium">Security Strategy</span>
+                  <span className="text-xs text-slate-500 block font-medium">Account status</span>
                   <span className="text-emerald-700 font-semibold mt-0.5 block">
-                    In-Memory Access Token + HttpOnly Refresh
+                    Signed in
                   </span>
                 </div>
               </div>
@@ -258,26 +201,13 @@ export const WorkspaceDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Customer Portal (Allowed for customer, staff, admin) */}
+        {/* Tab 2: Customer Portal (records are scoped to the signed-in customer by the API) */}
         {activeTab === 'customer' && (
           <RoleProtectedRoute
             roles={['customer', 'staff', 'admin']}
             onAccessDenied={() => setActiveTab('overview')}
           >
-            <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-xs p-6 animate-in fade-in space-y-4">
-              <div className="flex items-center gap-2 text-emerald-600">
-                <CreditCard className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-[#172033]">Customer Subscription Portal</h3>
-              </div>
-              <p className="text-sm text-slate-600">
-                Accessible to all authenticated customers, staff, and administrators. View active subscription
-                tiers, payment methods, and invoices.
-              </p>
-              <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs text-emerald-800">
-                Authorized for roles: <strong>Customer, Staff, Admin</strong>. Currently authenticated as:{' '}
-                <strong className="capitalize">{currentRole}</strong>.
-              </div>
-            </div>
+            <SubscriptionWorkspace portalMode />
           </RoleProtectedRoute>
         )}
 
@@ -287,20 +217,7 @@ export const WorkspaceDashboard: React.FC = () => {
             roles={['staff', 'admin']}
             onAccessDenied={() => setActiveTab('overview')}
           >
-            <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-xs p-6 animate-in fade-in space-y-4">
-              <div className="flex items-center gap-2 text-[#4965F5]">
-                <Users className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-[#172033]">Staff Operations &amp; Customer Support</h3>
-              </div>
-              <p className="text-sm text-slate-600">
-                Staff portal for managing subscription plans, overrides, manual renewals, and customer dunning
-                interventions.
-              </p>
-              <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-100 text-xs text-blue-900">
-                Authorized for roles: <strong>Staff, Admin</strong>. Currently authenticated as:{' '}
-                <strong className="capitalize">{currentRole}</strong>.
-              </div>
-            </div>
+            <SubscriptionWorkspace />
           </RoleProtectedRoute>
         )}
 

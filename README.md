@@ -216,7 +216,7 @@ Docker Desktop (or Docker Engine with the Compose plugin) is required. From the 
    docker compose up --build
    ```
 
-   Open [http://localhost:8080](http://localhost:8080); Django admin is at [http://localhost:8080/admin/](http://localhost:8080/admin/). Compose waits for PostgreSQL, runs committed migrations once, then starts Django, the Celery worker, Celery Beat, Redis, and the built frontend. The backend and databases are only reachable inside the Compose network. The frontend remains the Vite starter, and billing REST APIs are still pending. The backend now includes foundational invoice, discount reservation, and email outbox models with Celery cleanup and delivery tasks.
+   Open [http://localhost:8080](http://localhost:8080); Django admin is at [http://localhost:8080/admin/](http://localhost:8080/admin/). Compose waits for PostgreSQL, applies migrations, then starts Django, the Celery worker, Celery Beat, Redis, and the production-built React frontend. The backend, database, and Redis are reachable only inside the Compose network. Authentication uses a short-lived in-memory access token and an HttpOnly refresh cookie. Use a staff account to open **Staff Operations** and manage subscriptions.
 
 3. In another terminal, inspect the stack or create a Django admin user:
 
@@ -227,11 +227,22 @@ Docker Desktop (or Docker Engine with the Compose plugin) is required. From the 
    docker compose exec backend python manage.py check
    ```
 
+   Create demo catalog data and run the recurring billing scan manually with:
+
+   ```bash
+   docker compose exec backend python manage.py seed_subscription_demo
+   docker compose exec backend python manage.py scan_due_subscriptions
+   ```
+
+   The scan accepts an optional `--date YYYY-MM-DD` for a deterministic demonstration. The staff subscription screen reads customers, plans, products, variants, and quote templates from the authenticated API; it no longer needs manually typed database IDs. The server calculates plan and product totals from stored catalog prices and tax rules through `products.services.calculate_price`. Recurring invoices carry forward the saved subscription price snapshots so later catalog edits do not silently change an accepted quote. This baseline does not yet apply discount rules; integrate and review that portion against the catalog contract in `docs/contracts/aby-catalog-pricing-contract.md` before treating discounts as production-ready.
+
+   The API is rooted at `/api/v1`: authentication (`/auth/...`, `/me/`), catalog reads (`/customers/`, `/plans/`, `/products/`, `/quote-templates/`, `/payment-terms/`), staff subscription management (`/subscriptions/`), and customer-owned subscription access (`/portal/subscriptions/`). The browser's customer tab uses the customer-owned endpoint; the backend scopes those rows by the signed-in user's customer profile.
+
    Stop with `docker compose down`. PostgreSQL and Beat data remain in named volumes. **`docker compose down -v` deletes those volumes and their data.** Changing PostgreSQL credentials in `.env` after the database has been initialized does not change the existing database user; manage that change in PostgreSQL as well.
 
 The Compose configuration is designed for a single host and binds the frontend to `127.0.0.1:8080`. For a public deployment, place a trusted HTTPS reverse proxy in front of it, configure real hostnames and trusted CSRF origins, and set `DJANGO_SECURE_SSL_REDIRECT=true`. The outer proxy **must overwrite** `X-Forwarded-Proto` with the real request scheme, not forward an untrusted client-supplied value. Django then enables secure session and CSRF cookies. Provision backups, access controls, and monitoring for your environment; this configuration does not set up TLS or backups. Run only one Beat instance to avoid duplicate scheduled jobs. Redis is an internal broker without durable task guarantees; configure persistence and an appropriate broker policy before relying on it for critical jobs.
 
-Container settings live in `backend/config/container_settings.py`; the existing local Django settings are unchanged. For schema changes, create and commit migrations during development; Compose only runs `migrate`, never `makemigrations`. For upgrades, back up the database and review migrations before starting the new release.
+Container settings live in `backend/config/container_settings.py`; `DJANGO_SECRET_KEY` is required and there is no checked-in production secret. For schema changes, create and commit migrations during development; Compose only runs `migrate`, never `makemigrations`. For upgrades, back up the database and review migrations before starting the new release.
 
 ---
 
@@ -313,12 +324,20 @@ python manage.py createsuperuser
 
 ## Running the Application
 
-You need two terminals to run the frontend and backend.
+For Vite development, run the backend services in Docker first. This supplies Django's required secret, PostgreSQL, and Redis; the backend is published only on localhost so Vite can reach it.
 
-### Terminal 1 – Frontend
+### Terminal 1 – Backend services
 
 ```bash
-cd hack2026/frontend
+docker compose up -d --build backend worker beat
+```
+
+Compose also starts PostgreSQL, Redis, and migrations as dependencies.
+
+### Terminal 2 – Frontend development server
+
+```bash
+cd frontend
 
 npm run dev
 ```
@@ -329,21 +348,9 @@ Frontend URL:
 http://localhost:5173
 ```
 
-### Terminal 2 – Backend
+Vite sends `/api`, `/admin`, and `/static` requests to the Docker backend at `127.0.0.1:8000`. The full production-built frontend remains available at `http://localhost:8080` when you run `docker compose up --build`.
 
-```bash
-cd hack2026/backend
-
-source venv/bin/activate
-
-python manage.py runserver
-```
-
-Backend URL:
-
-```text
-http://127.0.0.1:8000
-```
+Stop the backend services with `docker compose down` when finished.
 
 ---
 

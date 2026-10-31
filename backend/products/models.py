@@ -1,22 +1,21 @@
+from decimal import Decimal
+
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
 
 
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
 class TaxRule(models.Model):
-    """
-    Additive percentage tax rule applied to products and plans.
-    """
+    """Additive percentage tax rule applied to products and plans."""
 
-    name = models.CharField(
-        max_length=64,
-        unique=True,
-    )
+    name = models.CharField(max_length=64, unique=True)
 
     percentage_rate = models.DecimalField(
         max_digits=5,
@@ -28,11 +27,7 @@ class TaxRule(models.Model):
         ],
     )
 
-    is_active = models.BooleanField(
-        default=True,
-        db_index=True,
-    )
-
+    is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -46,42 +41,36 @@ class TaxRule(models.Model):
 
 
 class Product(models.Model):
-    """
-    Base sellable product, software tier, or add-on service.
-    """
+    """Base sellable product, software tier, or add-on service."""
 
-    class ProductType(models.TextChoices):
+    class Type(models.TextChoices):
         SERVICE = "service", "Service"
         CONSUMABLE = "consumable", "Consumable"
         ADDON = "addon", "Add-on"
 
-    name = models.CharField(
-        max_length=255,
-        db_index=True,
-    )
+    # Backward-compatible enum name.
+    ProductType = Type
+
+    name = models.CharField(max_length=255, db_index=True)
 
     type = models.CharField(
         max_length=32,
-        choices=ProductType.choices,
-        default=ProductType.SERVICE,
+        choices=Type.choices,
+        default=Type.SERVICE,
     )
 
     sales_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=Decimal("0.00"),
-        validators=[
-            MinValueValidator(Decimal("0.00")),
-        ],
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     cost_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=Decimal("0.00"),
-        validators=[
-            MinValueValidator(Decimal("0.00")),
-        ],
+        validators=[MinValueValidator(Decimal("0.00"))],
         help_text="Internal cost price. Never expose through customer APIs.",
     )
 
@@ -97,13 +86,17 @@ class Product(models.Model):
         related_name="products",
     )
 
-    is_active = models.BooleanField(
-        default=True,
-        db_index=True,
-    )
-
+    is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def sale_price(self):
+        return self.sales_price
+
+    @property
+    def active(self):
+        return self.is_active
 
     def __str__(self):
         return self.name
@@ -113,9 +106,7 @@ class Product(models.Model):
 
 
 class ProductVariant(models.Model):
-    """
-    Variant option for a product, such as brand, region, or storage size.
-    """
+    """Variant option for a product, such as brand, region, or storage size."""
 
     product = models.ForeignKey(
         Product,
@@ -133,23 +124,31 @@ class ProductVariant(models.Model):
         help_text="Can be positive, zero, or negative.",
     )
 
-    is_active = models.BooleanField(
-        default=True,
-        db_index=True,
-    )
-
+    is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def attribute(self):
+        return self.attribute_label
+
+    @property
+    def value(self):
+        return self.option_value
+
+    @property
+    def active(self):
+        return self.is_active
+
+    @property
+    def effective_price(self):
+        return self.product.sales_price + self.price_adjustment
 
     def clean(self):
         super().clean()
 
         if self.product_id:
-            effective_price = (
-                self.product.sales_price + self.price_adjustment
-            )
-
-            if effective_price < Decimal("0.00"):
+            if self.effective_price < Decimal("0.00"):
                 raise ValidationError({
                     "price_adjustment": (
                         "The effective unit price cannot be negative. "
@@ -157,10 +156,6 @@ class ProductVariant(models.Model):
                         "must be greater than or equal to zero."
                     )
                 })
-
-    @property
-    def effective_price(self):
-        return self.product.sales_price + self.price_adjustment
 
     def __str__(self):
         return (
