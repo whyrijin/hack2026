@@ -1,0 +1,3 @@
+We received payment for invoice {{ invoice_id }}.
+
+Paid amount: {{ total }} {{ currency }}
