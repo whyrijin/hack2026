@@ -119,6 +119,7 @@ hack2026/
 │   ├── subscriptions/
 │   ├── billing/
 │   ├── discounts/
+│   ├── notifications/
 │   ├── payments/
 │   ├── analytics/
 │   ├── manage.py
@@ -215,7 +216,7 @@ Docker Desktop (or Docker Engine with the Compose plugin) is required. From the 
    docker compose up --build
    ```
 
-   Open [http://localhost:8080](http://localhost:8080); Django admin is at [http://localhost:8080/admin/](http://localhost:8080/admin/). Compose waits for PostgreSQL, runs committed migrations once, then starts Django, the Celery worker, Celery Beat, Redis, and the built frontend. The backend and databases are only reachable inside the Compose network. The frontend currently remains the Vite starter, and the backend has no application API or Celery tasks configured yet.
+   Open [http://localhost:8080](http://localhost:8080); Django admin is at [http://localhost:8080/admin/](http://localhost:8080/admin/). Compose waits for PostgreSQL, runs committed migrations once, then starts Django, the Celery worker, Celery Beat, Redis, and the built frontend. The backend and databases are only reachable inside the Compose network. The frontend remains the Vite starter, and billing REST APIs are still pending. The backend now includes foundational invoice, discount reservation, and email outbox models with Celery cleanup and delivery tasks.
 
 3. In another terminal, inspect the stack or create a Django admin user:
 

@@ -37,6 +37,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'subscriptions',
+    'billing',
+    'discounts',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -121,3 +125,16 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'no-reply@localhost'
+
+CELERY_BEAT_SCHEDULE = {
+    'discounts-expire-reservations': {
+        'task': 'discounts.expire_reservations',
+        'schedule': 60.0,
+    },
+    'notifications-enqueue-pending-emails': {
+        'task': 'notifications.enqueue_pending_emails',
+        'schedule': 60.0,
+    },
+}
