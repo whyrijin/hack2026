@@ -3,6 +3,7 @@
 from django.conf import settings
 import django.core.validators
 from django.db import migrations, models
+from config import migration_compat
 import django.db.models.deletion
 import django.utils.timezone
 
@@ -19,7 +20,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
+        migration_compat.CreateModel(
             name='BillingAttempt',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -37,7 +38,7 @@ class Migration(migrations.Migration):
                 'ordering': ['period_start'],
             },
         ),
-        migrations.CreateModel(
+        migration_compat.CreateModel(
             name='SubscriptionEvent',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -52,7 +53,7 @@ class Migration(migrations.Migration):
                 'ordering': ['effective_on', 'created_at', 'id'],
             },
         ),
-        migrations.CreateModel(
+        migration_compat.CreateModel(
             name='SubscriptionLine',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -75,127 +76,127 @@ class Migration(migrations.Migration):
             name='subscription',
             options={'ordering': ['-created_at', '-id']},
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='allow_early_close_snapshot',
             field=models.BooleanField(default=False),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='allow_pause_snapshot',
             field=models.BooleanField(default=False),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='allow_renewal_snapshot',
             field=models.BooleanField(default=False),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='auto_close_on_expiry_snapshot',
             field=models.BooleanField(default=False),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='base_price_snapshot',
             field=models.DecimalField(decimal_places=2, default=0, max_digits=12, validators=[django.core.validators.MinValueValidator(0)]),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='billing_anchor_day',
             field=models.PositiveSmallIntegerField(blank=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='billing_anchor_month',
             field=models.PositiveSmallIntegerField(blank=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='cadence',
             field=models.CharField(blank=True, choices=[('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('yearly', 'Yearly')], max_length=16, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='created_by',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='created_subscriptions', to=settings.AUTH_USER_MODEL),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='currency',
             field=models.CharField(default='INR', max_length=3),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='customer',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='subscriptions', to='customers.customer'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='discount_total',
             field=models.DecimalField(decimal_places=2, default=0, max_digits=14),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='expiry_date',
             field=models.DateField(blank=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='minimum_quantity_snapshot',
             field=models.PositiveIntegerField(default=1),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='next_billing_date',
             field=models.DateField(blank=True, db_index=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='number',
             field=models.CharField(blank=True, max_length=24, unique=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='payment_term_days',
             field=models.PositiveSmallIntegerField(default=0),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='plan',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='subscriptions', to='plans.plan'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='quote_valid_until',
             field=models.DateField(blank=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='renewal_of',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='renewals', to='subscriptions.subscription'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='start_date',
             field=models.DateField(blank=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='subtotal',
             field=models.DecimalField(decimal_places=2, default=0, max_digits=14),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='tax_total',
             field=models.DecimalField(decimal_places=2, default=0, max_digits=14),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='template',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='quotations.quotetemplate'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscription',
             name='total',
             field=models.DecimalField(decimal_places=2, default=0, max_digits=14),
@@ -209,32 +210,32 @@ class Migration(migrations.Migration):
             model_name='subscription',
             index=models.Index(fields=['status', 'next_billing_date'], name='subscriptio_status_ebe508_idx'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscriptionline',
             name='product',
             field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='subscription_lines', to='products.product'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscriptionline',
             name='subscription',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='lines', to='subscriptions.subscription'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscriptionline',
             name='variant',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, to='products.productvariant'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscriptionevent',
             name='actor',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='subscriptionevent',
             name='subscription',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='events', to='subscriptions.subscription'),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name='billingattempt',
             name='subscription',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='billing_attempts', to='subscriptions.subscription'),

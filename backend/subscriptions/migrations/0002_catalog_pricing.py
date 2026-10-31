@@ -4,14 +4,15 @@ import uuid
 import django.core.validators
 import django.db.models.deletion
 from django.db import migrations, models
+from config import migration_compat
 
 
 def normalize_subscription_statuses(apps, schema_editor):
+    # Preserve lifecycle states; earlier versions collapsed paused/expired to Closed.
     Subscription = apps.get_model("subscriptions", "Subscription")
-    Subscription.objects.filter(status="active").update(status="Active")
-    Subscription.objects.filter(status="paused").update(status="Closed")
-    Subscription.objects.filter(status="cancelled").update(status="Closed")
-    Subscription.objects.filter(status="expired").update(status="Closed")
+    for value in ("Draft", "Quotation", "Confirmed", "Active", "Paused", "Expired", "Closed"):
+        Subscription.objects.using(schema_editor.connection.alias).filter(status=value).update(status=value.lower())
+    Subscription.objects.using(schema_editor.connection.alias).filter(status="cancelled").update(status="closed")
 
 
 class Migration(migrations.Migration):
@@ -22,22 +23,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        migration_compat.AddField(
             model_name="subscription",
             name="customer_id",
             field=models.PositiveBigIntegerField(blank=True, db_index=True, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name="subscription",
             name="plan_base_price_snapshot",
             field=models.DecimalField(blank=True, decimal_places=2, max_digits=10, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name="subscription",
             name="plan_tax_rate_snapshot",
             field=models.DecimalField(blank=True, decimal_places=2, max_digits=5, null=True),
         ),
-        migrations.AddField(
+        migration_compat.AddField(
             model_name="subscription",
             name="plan",
             field=models.ForeignKey(
@@ -48,7 +49,7 @@ class Migration(migrations.Migration):
                 to="plans.plan",
             ),
         ),
-        migrations.CreateModel(
+        migration_compat.CreateModel(
             name="SubscriptionLine",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),

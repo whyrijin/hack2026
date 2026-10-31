@@ -54,7 +54,7 @@ INSTALLED_APPS = [
     'billing',
     'payments',
     'discounts',
-    'payments',
+    'billing_jobs',
     'analytics',
     'notifications',
 
@@ -157,23 +157,25 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 SUBSCRIPTION_PRICING_PROVIDER = os.environ.get(
     'SUBSCRIPTION_PRICING_PROVIDER',
-    'products.services.calculate_price',
+    'products.services.catalog_adapter.calculate_price',
 )
 BILLING_PERIOD_PRICING_PROVIDER = os.environ.get(
     'BILLING_PERIOD_PRICING_PROVIDER',
-    'billing_jobs.pricing.price_subscription_period',
+    'products.services.billing_adapter.price_subscription_period',
 )
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'accounts.authentication.AccountJWTAuthentication',
     ],
     'EXCEPTION_HANDLER': 'config.api.stable_exception_handler',
 }
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'no-reply@localhost'
-BILLING_PERIOD_PRICING_PROVIDER = 'products.services.billing_adapter.price_subscription_period'
+MEDIA_ROOT = Path(os.environ.get('MEDIA_ROOT', BASE_DIR / 'media'))
+MEDIA_URL = '/media/'
 
 CELERY_BEAT_SCHEDULE = {
+    'invoice-documents': {'task': 'billing.enqueue_pending_documents', 'schedule': 60.0},
     'discounts-expire-reservations': {
         'task': 'discounts.expire_reservations',
         'schedule': 60.0,
@@ -183,3 +185,6 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': 60.0,
     },
 }
+
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:8080')
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', 'http://localhost:8080,http://localhost:5173').split(',') if origin.strip()]

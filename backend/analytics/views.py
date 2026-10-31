@@ -1,3 +1,112 @@
-from django.shortcuts import render
+"""Read-only financial reports, using issued invoices and recorded receipts."""
+from collections import defaultdict
+from datetime import date
+from decimal import Decimal
 
-# Create your views here.
+from django.db.models import DecimalField, F, OuterRef, Subquery, Sum, Value
+from django.db.models.functions import Coalesce, TruncMonth
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from billing.models import Invoice, InvoiceStatus
+from config.catalog_views import CatalogPagination
+from customers.models import Customer
+from payments.models import Payment
+from subscriptions.models import Subscription
+
+MONEY = DecimalField(max_digits=18, decimal_places=2)
+
+
+def money(value):
+    return format(value or Decimal('0'), '.2f')
+
+
+def report_filters(request):
+    currency = request.query_params.get('currency', 'INR').upper()
+    if len(currency) != 3 or not currency.isascii() or not currency.isalpha():
+        raise ValidationError({'currency': 'Use a three-letter currency code.'})
+    dates = {}
+    for key in ['date_from', 'date_to']:
+        raw = request.query_params.get(key)
+        if raw:
+            try:
+                dates[key] = date.fromisoformat(raw)
+            except ValueError:
+                raise ValidationError({key: 'Use YYYY-MM-DD.'})
+    if len(dates) == 2 and dates['date_from'] > dates['date_to']:
+        raise ValidationError({'date_to': 'End date must be on or after start date.'})
+    return currency, dates
+
+
+def dated(queryset, field, dates):
+    if 'date_from' in dates:
+        queryset = queryset.filter(**{field + '__gte': dates['date_from']})
+    if 'date_to' in dates:
+        queryset = queryset.filter(**{field + '__lte': dates['date_to']})
+    return queryset
+
+
+def issued(currency):
+    paid = Payment.objects.filter(invoice_id=OuterRef('pk')).values('invoice_id').annotate(total=Sum('amount')).values('total')
+    return Invoice.objects.filter(currency=currency, status__in=[InvoiceStatus.CONFIRMED, InvoiceStatus.PAID]).annotate(
+        amount_paid=Coalesce(Subquery(paid, output_field=MONEY), Value(Decimal('0')), output_field=MONEY),
+    ).annotate(balance=F('total') - F('amount_paid'))
+
+
+class SummaryView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        currency, dates = report_filters(request)
+        invoices = dated(issued(currency), 'confirmed_at__date', dates)
+        payments = dated(Payment.objects.filter(currency=currency), 'received_at__date', dates)
+        totals = invoices.aggregate(billed=Sum('total'), outstanding=Sum('balance'))
+        overdue = invoices.filter(due_date__lt=timezone.localdate(), balance__gt=0).aggregate(total=Sum('balance'))['total']
+        return Response({
+            'currency': currency,
+            'active_subscriptions': Subscription.objects.filter(status=Subscription.Status.ACTIVE, currency=currency).count(),
+            'customers': Customer.objects.count(),
+            'billed': money(totals['billed']),
+            'collected': money(payments.aggregate(total=Sum('amount'))['total']),
+            'outstanding': money(totals['outstanding']), 'overdue': money(overdue),
+        })
+
+
+class RevenueView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        currency, dates = report_filters(request)
+        invoices = dated(issued(currency), 'confirmed_at__date', dates)
+        payments = dated(Payment.objects.filter(currency=currency), 'received_at__date', dates)
+        buckets = defaultdict(lambda: {'billed': Decimal('0'), 'collected': Decimal('0')})
+        for queryset, field, metric in [(invoices, 'confirmed_at', 'billed'), (payments, 'received_at', 'collected')]:
+            for row in queryset.annotate(month=TruncMonth(field)).values('month').annotate(amount=Sum('total' if metric == 'billed' else 'amount')).order_by('month'):
+                if row['month']:
+                    buckets[row['month'].strftime('%Y-%m')][metric] += row['amount']
+        return Response({'currency': currency, 'results': [
+            {'month': month, **{key: money(value) for key, value in amounts.items()}}
+            for month, amounts in sorted(buckets.items())
+        ]})
+
+
+class OverdueView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        currency, dates = report_filters(request)
+        queryset = dated(issued(currency), 'confirmed_at__date', dates).filter(
+            due_date__lt=timezone.localdate(), balance__gt=0,
+        ).select_related('subscription__customer').order_by('due_date', 'id')
+        paginator = CatalogPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response([{
+            'id': str(item.id), 'invoice_number': item.invoice_number,
+            'customer_name': item.customer_snapshot.get('name') or item.subscription.customer.name,
+            'status': item.status, 'currency': item.currency, 'total': money(item.total),
+            'amount_paid': money(item.amount_paid), 'balance': money(item.balance),
+            'due_date': item.due_date.isoformat(), 'days_overdue': (timezone.localdate() - item.due_date).days,
+        } for item in page])

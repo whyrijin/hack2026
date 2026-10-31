@@ -27,7 +27,14 @@ export function formatApiError(err: unknown): ApiErrorDetail {
           return { message: data.detail, statusCode }
         }
         if (typeof data.message === 'string') {
-          return { message: data.message, statusCode }
+          const fieldErrors: Record<string, string[]> = {}
+          if (data.fields && typeof data.fields === 'object') {
+            for (const [key, value] of Object.entries(data.fields)) {
+              fieldErrors[key] = Array.isArray(value) ? value.map(String) : [String(value)]
+            }
+          }
+          const details = Object.entries(fieldErrors).map(([key, values]) => `${key.replaceAll('_', ' ')}: ${values.join(' ')}`)
+          return { message: [data.message, ...details].join(' '), fieldErrors, statusCode }
         }
 
         if (Array.isArray(data.non_field_errors) && data.non_field_errors.length > 0) {
@@ -69,7 +76,7 @@ export function formatApiError(err: unknown): ApiErrorDetail {
       return { message: `Request failed with status code ${statusCode}`, statusCode }
     } else if (err.request) {
       return {
-        message: `Unable to connect to the authentication server at ${AUTH_CONFIG.baseURL}. Please ensure the Django backend is running.`,
+        message: 'Unable to connect. Check your connection and try again.',
       }
     }
   }
