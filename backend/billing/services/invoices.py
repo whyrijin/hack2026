@@ -9,7 +9,7 @@ from django.db import IntegrityError, transaction
 
 from django.utils.module_loading import import_string
 
-from billing.models import Invoice, InvoiceLine, InvoiceStatus
+from billing.models import Invoice, InvoiceLine, InvoiceNumberSequence, InvoiceStatus
 from subscriptions.models import Subscription
 
 
@@ -31,6 +31,10 @@ class InvoicePricingNotConfigured(InvoiceGenerationError):
 
 class InvalidPricingResult(InvoiceGenerationError):
     """The pricing engine returned data that cannot be snapshotted safely."""
+
+
+class InvoicePeriodConflict(InvoiceGenerationError):
+    """An invoice already exists for this subscription and period start with a different end."""
 
 
 def _load_provider():
@@ -59,26 +63,42 @@ def _decimal(value, field_name):
     return result
 
 
-def _source_uuid(value, field_name):
+def _source_id(value):
     if not value:
-        return None
-    try:
-        return UUID(str(value))
-    except (TypeError, ValueError, AttributeError) as exc:
-        raise InvalidPricingResult(f"Pricing value {field_name} is not a UUID.") from exc
+        return ""
+    return str(value)[:64]
+
+
+def _json_snapshot(value):
+    """Convert service metadata to JSON-safe primitives without storing floats."""
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_snapshot(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_snapshot(item) for item in value]
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        raise InvalidPricingResult("Pricing snapshots must not contain floats.")
+    raise InvalidPricingResult(f"Unsupported value in pricing snapshot: {type(value).__name__}.")
 
 
 def _snapshot_lines(pricing):
     line_data = []
     plan = pricing.get("plan_summary")
-    if plan and _decimal(plan.get("base_fee", 0), "plan_summary.base_fee") > 0:
+    if plan is not None:
         gross = _decimal(plan["base_fee"], "plan_summary.base_fee")
         discount = _decimal(plan.get("discount_amount", 0), "plan_summary.discount_amount")
         taxable = _decimal(plan.get("net_amount", gross - discount), "plan_summary.net_amount")
         tax = _decimal(plan.get("tax_amount", 0), "plan_summary.tax_amount")
-        total = _decimal(plan.get("total_amount", taxable + tax), "plan_summary.total_amount")
+        total = _decimal(plan.get("final_total", plan.get("total_amount", taxable + tax)), "plan_summary.final_total")
         line_data.append({
-            "description": str(plan.get("plan_name") or "Subscription plan")[:255],
+            "description": str(plan.get("name") or plan.get("plan_name") or "Subscription plan")[:255],
             "quantity": Decimal("1"),
             "unit_price": gross,
             "gross_amount": gross,
@@ -88,20 +108,26 @@ def _snapshot_lines(pricing):
             "tax_amount": tax,
             "total_amount": total,
             "source_type": "plan",
-            "source_id": _source_uuid(plan.get("plan_id"), "plan_summary.plan_id"),
+            "source_id": _source_id(plan.get("plan_id")),
+            "product_id_snapshot": "",
+            "product_name_snapshot": "",
+            "variant_label_snapshot": "",
         })
 
     for item in pricing.get("lines", []):
-        gross = _decimal(item["gross_amount"], "lines[].gross_amount")
+        gross = _decimal(item.get("line_subtotal", item.get("gross_amount")), "lines[].line_subtotal")
         discount = _decimal(item.get("discount_amount", 0), "lines[].discount_amount")
-        taxable = _decimal(item.get("net_amount", gross - discount), "lines[].net_amount")
+        taxable = _decimal(item.get("line_net_amount", item.get("net_amount", gross - discount)), "lines[].line_net_amount")
         tax = _decimal(item.get("tax_amount", 0), "lines[].tax_amount")
-        total = _decimal(item.get("total_amount", taxable + tax), "lines[].total_amount")
-        description = str(item.get("variant_name") or item.get("product_name") or "Subscription item")[:255]
+        total = _decimal(item.get("final_line_total", item.get("total_amount", taxable + tax)), "lines[].final_line_total")
+        product_name = str(item.get("product_name") or "Subscription item")
+        variant_label = str(item.get("variant_label") or "").strip()
+        description = f"{product_name} / {variant_label}" if variant_label else product_name
+        description = description[:255]
         line_data.append({
             "description": description,
             "quantity": _decimal(item.get("quantity", 1), "lines[].quantity"),
-            "unit_price": _decimal(item.get("effective_unit_price", item.get("unit_base_price", 0)), "lines[].effective_unit_price"),
+            "unit_price": _decimal(item.get("effective_unit_price", item.get("unit_sales_price", 0)), "lines[].effective_unit_price"),
             "gross_amount": gross,
             "discount_amount": discount,
             "taxable_amount": taxable,
@@ -109,7 +135,10 @@ def _snapshot_lines(pricing):
             "tax_amount": tax,
             "total_amount": total,
             "source_type": "product",
-            "source_id": _source_uuid(item.get("product_id"), "lines[].product_id"),
+            "source_id": _source_id(item.get("product_id")),
+            "product_id_snapshot": _source_id(item.get("product_id")),
+            "product_name_snapshot": str(item.get("product_name") or "")[:255],
+            "variant_label_snapshot": str(item.get("variant_label") or "")[:255],
         })
 
     if not line_data:
@@ -141,6 +170,7 @@ def _validated_pricing(pricing):
         raise InvalidPricingResult("Pricing result currency must be a three-letter code.")
     if not isinstance(pricing.get("lines", []), list):
         raise InvalidPricingResult("Pricing result lines must be a list.")
+    discount_applied = pricing.get("discount_applied")
     try:
         lines = _snapshot_lines(pricing)
     except InvalidPricingResult:
@@ -155,13 +185,17 @@ def _validated_pricing(pricing):
         raise InvalidPricingResult("Pricing subtotal does not match the snapshotted line amounts.")
     if discount_total != sum((line["discount_amount"] for line in lines), Decimal("0")):
         raise InvalidPricingResult("Pricing discount total does not match the snapshotted line amounts.")
+    if discount_applied is not None:
+        applied_saving = _decimal(discount_applied.get("total_saving"), "discount_applied.total_saving")
+        if applied_saving != discount_total:
+            raise InvalidPricingResult("Applied discount does not match total_discount.")
     if tax_total != sum((line["tax_amount"] for line in lines), Decimal("0")):
         raise InvalidPricingResult("Pricing tax total does not match the snapshotted line amounts.")
     if total != subtotal - discount_total + tax_total:
         raise InvalidPricingResult("Pricing final total does not reconcile with subtotal, discount, and tax.")
     if min(subtotal, discount_total, tax_total, total) < 0 or discount_total > subtotal:
         raise InvalidPricingResult("Pricing totals must be nonnegative and discounts cannot exceed subtotal.")
-    return currency, subtotal, discount_total, tax_total, total, lines
+    return currency, subtotal, discount_total, tax_total, total, lines, discount_applied
 
 
 def create_invoice_for_period(subscription_id: UUID, period_start: date, period_end: date) -> Invoice:
@@ -174,8 +208,16 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
     lookup = {
         "subscription_id": subscription_id,
         "period_start": period_start,
-        "period_end": period_end,
     }
+
+    def existing_for_period_start():
+        existing = Invoice.objects.filter(**lookup).first()
+        if existing is not None and existing.period_end != period_end:
+            raise InvoicePeriodConflict(
+                "An invoice already exists for this subscription and period_start with a different period_end."
+            )
+        return existing
+
     try:
         with transaction.atomic():
             try:
@@ -185,16 +227,24 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
             if subscription.status != Subscription.Status.ACTIVE:
                 raise SubscriptionNotBillable(f"Subscription {subscription_id} is not active.")
 
-            existing = Invoice.objects.filter(**lookup).first()
+            existing = existing_for_period_start()
             if existing is not None:
                 return existing
 
             pricing = _load_provider()(subscription, period_start, period_end)
-            currency, subtotal, discount_total, tax_total, total, lines = _validated_pricing(pricing)
+            currency, subtotal, discount_total, tax_total, total, lines, discount_applied = _validated_pricing(pricing)
+            sequence_id = InvoiceNumberSequence.objects.create().pk
+            customer_snapshot = {}
+            if subscription.customer_id is not None:
+                customer_snapshot["customer_id"] = subscription.customer_id
             invoice = Invoice.objects.create(
+                invoice_number=f"INV-{sequence_id:06d}",
                 subscription=subscription,
                 period_start=period_start,
                 period_end=period_end,
+                customer_id_snapshot=subscription.customer_id,
+                customer_snapshot=customer_snapshot,
+                discount_snapshot=_json_snapshot(discount_applied or {}),
                 currency=currency,
                 subtotal=subtotal,
                 discount_total=discount_total,
@@ -207,9 +257,9 @@ def create_invoice_for_period(subscription_id: UUID, period_start: date, period_
                 for index, line in enumerate(lines, start=1)
             ])
             return invoice
-    except IntegrityError:
-        # The unique period constraint is the final guard if two workers race.
-        existing = Invoice.objects.filter(**lookup).first()
+    except IntegrityError as exc:
+        # The unique subscription/period-start constraint is the final guard if workers race.
+        existing = existing_for_period_start()
         if existing is None:
-            raise
+            raise exc
         return existing
