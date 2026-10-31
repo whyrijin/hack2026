@@ -122,7 +122,29 @@ export const SubscriptionWorkspace: React.FC<{ portalMode?: boolean }> = ({ port
     }
   }, [search, statusFilter, portalMode])
 
-  useEffect(() => { void loadSubscriptions() }, [loadSubscriptions])
+  useEffect(() => {
+    let ignore = false
+    const run = async () => {
+      try {
+        const params = new URLSearchParams()
+        if (search.trim()) params.set('search', search.trim())
+        if (statusFilter) params.set('status', statusFilter)
+        const prefix = portalMode ? '/portal/subscriptions/' : '/subscriptions/'
+        const result = await request<{ results: Subscription[] }>(`${prefix}?${params.toString()}`)
+        if (!ignore) {
+          setSubscriptions(result.results)
+        }
+      } catch (err) {
+        if (!ignore) setError((err as Error).message)
+      } finally {
+        if (!ignore) setLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
+  }, [search, statusFilter, portalMode])
 
   async function openDetails(item: Subscription) {
     setError('')

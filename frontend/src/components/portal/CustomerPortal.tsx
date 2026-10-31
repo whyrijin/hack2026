@@ -313,13 +313,11 @@ export const CustomerPortal: React.FC = () => {
 
       {/* Mobile overlay */}
       {isMobileMenuOpen && (
-        <div
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           aria-label="Close mobile navigation"
           onClick={() => setIsMobileMenuOpen(false)}
-          onKeyDown={(e) => e.key === 'Escape' && setIsMobileMenuOpen(false)}
-          className="fixed inset-0 bg-black/60 z-30 lg:hidden"
+          className="fixed inset-0 bg-black/60 z-30 lg:hidden cursor-default w-full h-full border-0 p-0 m-0"
         />
       )}
 
