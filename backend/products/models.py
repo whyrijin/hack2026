@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -9,77 +10,88 @@ class TaxRule(models.Model):
     percentage_rate = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=0,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
     )
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ("name",)
+        constraints = [
+            models.CheckConstraint(check=models.Q(percentage_rate__gte=0, percentage_rate__lte=100), name="tax_rate_range_ck"),
+        ]
+
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.percentage_rate}%)"
 
 
 class Product(models.Model):
-    class Type(models.TextChoices):
-        SERVICE = 'service', 'Service'
-        CONSUMABLE = 'consumable', 'Consumable'
-        ADDON = 'addon', 'Add-on'
+    class ProductType(models.TextChoices):
+        SERVICE = "service", "Service"
+        CONSUMABLE = "consumable", "Consumable"
+        ADDON = "addon", "Add-on"
 
     name = models.CharField(max_length=255, db_index=True)
-    type = models.CharField(max_length=32, choices=Type.choices, default=Type.SERVICE)
-    sales_price = models.DecimalField(max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(0)])
-    cost_price = models.DecimalField(max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(0)])
-    notes = models.TextField(blank=True)
-    taxes = models.ManyToManyField(TaxRule, related_name='products', blank=True)
+    type = models.CharField(max_length=32, choices=ProductType.choices, default=ProductType.SERVICE)
+    sales_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    cost_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    notes = models.TextField(blank=True, default="")
+    taxes = models.ManyToManyField(TaxRule, blank=True, related_name="products")
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    @property
-    def sale_price(self):
-        return self.sales_price
-
-    @property
-    def active(self):
-        return self.is_active
+    class Meta:
+        ordering = ("name",)
+        constraints = [
+            models.CheckConstraint(check=models.Q(sales_price__gte=0), name="product_sales_price_nonneg_ck"),
+            models.CheckConstraint(check=models.Q(cost_price__gte=0), name="product_cost_price_nonneg_ck"),
+        ]
 
     def __str__(self):
         return self.name
 
 
 class ProductVariant(models.Model):
-    product = models.ForeignKey(Product, related_name='variants', on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
     attribute_label = models.CharField(max_length=64)
     option_value = models.CharField(max_length=64)
-    price_adjustment = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    price_adjustment = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['product', 'attribute_label', 'option_value'], name='unique_product_variant_option')]
-
-    @property
-    def attribute(self):
-        return self.attribute_label
-
-    @property
-    def value(self):
-        return self.option_value
-
-    @property
-    def active(self):
-        return self.is_active
+        constraints = [
+            models.UniqueConstraint(
+                fields=("product", "attribute_label", "option_value"),
+                name="product_variant_option_uq",
+            ),
+        ]
+        ordering = ("product__name", "attribute_label", "option_value")
 
     def clean(self):
         super().clean()
         if self.product_id:
-            effective_price = self.product.sales_price + self.price_adjustment
-            if effective_price < Decimal('0.00'):
-                from django.core.exceptions import ValidationError
+            product = self.product
+            if product.sales_price + self.price_adjustment < Decimal("0.00"):
+                raise ValidationError({"price_adjustment": "Effective variant price cannot be negative."})
 
-                raise ValidationError({'price_adjustment': 'The effective product price cannot be negative.'})
+    @property
+    def effective_unit_price(self):
+        return self.product.sales_price + self.price_adjustment
 
     def __str__(self):
-        return f'{self.product}: {self.attribute_label} {self.option_value}'
+        return f"{self.product}: {self.attribute_label} {self.option_value}"

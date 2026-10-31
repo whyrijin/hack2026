@@ -3,11 +3,11 @@
 | Metadata | Value |
 |---|---|
 | Phase | Foundations, Hour 1 |
-| Status | Implementation in progress; Rijin and Aby approved, team-wide email/status decisions pending |
+| Status | Approved; implementation in progress |
 | Owners | Rijin (invoice integration), Aby (discount service), all developers (email and shared status vocabulary) |
 | Applies to | Django backend: `subscriptions`, `billing`, `discounts`, and Celery email tasks |
 
-This document turns the Hour 1 integration points into concrete, reviewable interfaces. Rijin and Aby have accepted their respective contracts, as reported by the project owner. Email and invoice-status decisions remain pending team-wide confirmation. Foundational code now follows this proposal; the unresolved decisions remain subject to revision.
+This document records the Hour 1 integration decisions. Rijin and Aby accepted their respective contracts, and the project owner reports team-wide agreement on email queuing and invoice statuses. Foundational code follows the approved contracts.
 
 ### Review record
 
@@ -15,6 +15,7 @@ This document turns the Hour 1 integration points into concrete, reviewable inte
 |---|---|---|---|
 | Rijin Reji | Invoice generation contract | Accepted (reported by project owner) | 2026-10-31 |
 | Aby John | Discount reservation contract | Accepted (reported by project owner) | 2026-10-31 |
+| Project team | Email queue and invoice status contracts | Accepted (reported by project owner) | 2026-10-31 |
 
 ## 1. Shared conventions
 
@@ -43,8 +44,8 @@ Provider shape: `price_subscription_period(subscription, period_start, period_en
 ### Proposed behavior
 
 1. Treat the period as **start-inclusive, end-exclusive**: `[period_start, period_end)`. Reject `period_end <= period_start`.
-2. Look up the subscription by ID; raise `SubscriptionNotFound` if it does not exist. Resolve eligibility from lifecycle events effective at the period start, so a retry for an earlier active period can still succeed after the subscription has since been paused or closed.
-3. Create one invoice for a subscription cycle. Enforce a database uniqueness constraint on `(subscription, period_start)` so a changed period end cannot create a second invoice for the same cycle. Repeating the same call returns the existing invoice, including after a task retry; a conflicting period end is rejected.
+2. Look up the subscription by ID; raise `SubscriptionNotFound` if it does not exist. Reject a subscription that is not eligible for billing using a named `SubscriptionNotBillable` error.
+3. Create one invoice per subscription and `period_start`. Enforce a database uniqueness constraint on `(subscription, period_start)`. Repeating the same call with the same `period_end` returns the existing invoice; requesting a different end date for that start raises a period conflict.
 4. Snapshot every invoice line's description, quantity, currency, unit price, discount, tax, and totals. Later catalog edits must not change an existing invoice.
 5. Create the invoice in `Draft`. Invoice confirmation and payment are separate state transitions and are not side effects of invoice generation.
 6. Build the accepted subscription price through the shared pricing service, then carry the saved amount and tax snapshots into each invoice. Do not re-read mutable catalog prices for an already accepted subscription.
@@ -153,8 +154,11 @@ These are MVP model proposals to review alongside the service contracts. Use UUI
 | Field | Proposed type / rule | Purpose |
 |---|---|---|
 | `id` | UUID primary key | Stable public identifier. |
+| `invoice_number` | Unique, non-editable `CharField(32)` | Human-readable number allocated from a database sequence (`INV-000456`); never derived from `MAX + 1`. |
 | `subscription` | Foreign key to `subscriptions.Subscription`, `PROTECT`, related name `invoices` | Owning subscription; preserve billing history if a subscription is removed. |
 | `period_start`, `period_end` | `DateField` | Start-inclusive/end-exclusive billing period. |
+| `customer_id_snapshot`, `customer_snapshot` | Nullable `PositiveBigIntegerField` and `JSONField` | Immutable customer identifier and available customer details at issue time. |
+| `discount_snapshot` | `JSONField` | Immutable discount identity and display metadata; amounts remain in decimal columns. |
 | `status` | `CharField(16)`, choices `Draft`, `Confirmed`, `Paid`, `Cancelled`; default `Draft` | Invoice lifecycle. |
 | `currency` | `CharField(3)` | Currency snapshot for the invoice. |
 | `subtotal`, `discount_total`, `tax_total`, `total` | `DecimalField(12, 2)`, default `0.00` | Invoice-level monetary snapshots. |
@@ -162,7 +166,7 @@ These are MVP model proposals to review alongside the service contracts. Use UUI
 | `confirmed_at`, `paid_at`, `cancelled_at` | Nullable `DateTimeField` | Lifecycle audit timestamps. |
 | `created_at`, `updated_at` | `DateTimeField` | Record timestamps. |
 
-Database constraints: unique `(subscription, period_start, period_end)`; check `period_end > period_start`; check all invoice totals are nonnegative. Model/service validation enforces allowed status transitions.
+Database constraints: unique `(subscription, period_start)`; check `period_end > period_start`; check all invoice totals are nonnegative. A repeated request with the same start and end returns the existing invoice; a different end for the same start is a period conflict. Model/service validation enforces allowed status transitions.
 
 ### `InvoiceLine` (`billing` app)
 
@@ -172,12 +176,21 @@ Database constraints: unique `(subscription, period_start, period_end)`; check `
 | `invoice` | Foreign key to `Invoice`, `CASCADE`, related name `lines` | Parent invoice. |
 | `line_number` | `PositiveIntegerField` | Stable display order; unique within one invoice. |
 | `description` | `CharField(255)` | Description snapshot shown on the invoice. |
+| `product_id_snapshot`, `product_name_snapshot`, `variant_label_snapshot` | Text fields | Product identity and display values copied from the catalog at issue time. |
 | `quantity` | `DecimalField(12, 3)` | Quantity snapshot. |
 | `unit_price`, `gross_amount`, `discount_amount`, `taxable_amount`, `tax_amount`, `total_amount` | `DecimalField(12, 2)` | Immutable pricing snapshots from the authoritative pricing service. |
 | `tax_rate` | Nullable `DecimalField(7, 4)` | Applied rate snapshot for audit/display. |
-| `source_type`, `source_id` | `CharField(32)` and nullable `CharField(64)` | Optional pointer to the plan/product without making historical lines depend on a live catalog row. Supports integer catalog IDs and UUID-backed sources. |
+| `source_type`, `source_id` | `CharField(32)` and nullable, blankable `CharField(64)` | Optional snapshot pointer to plan/product IDs; text accommodates the catalog's integer IDs without making history depend on a live catalog row. |
 
 Database constraints: unique `(invoice, line_number)`; `quantity > 0`; monetary line values are nonnegative. Invoice lines become immutable after the invoice leaves `Draft`; enforce that rule through the billing service/model validation.
+
+### `Payment` (`payments` app)
+
+An immutable record of a successful payment received against an invoice. It snapshots the method, amount, currency, received timestamp, note/reference, and request idempotency key. Money uses `DecimalField(12, 2)`; `amount > 0`; `idempotency_key` is unique; `invoice` uses `PROTECT`. Payment edits, refunds, credits, and provider webhooks are deferred.
+
+### `DocumentJob` (`billing` app)
+
+Tracks asynchronous invoice PDF generation and exposes the status needed by `GET /jobs/{id}`. It stores the invoice, job kind, `queued`/`running`/`succeeded`/`failed` status, unique `dedupe_key`, attempts, output storage key, error, and timestamps. The existing `notifications.EmailOutbox` remains the durable email-delivery record; it is not duplicated as a second email model.
 
 ### `DiscountReservation` (`discounts` app)
 
@@ -212,16 +225,16 @@ Create the outbox row in the business transaction and publish its task on commit
 
 ## 7. Implementation status and remaining work
 
-Implemented in the current integration: invoice and line models, discount rule and reservation models/services, the email outbox and Celery tasks, invoice status transitions, migrations, and the default plan/product/tax pricing provider. Invoice generation now validates historical eligibility, uses accepted subscription snapshots, and is unique per subscription cycle start. The provider does not yet apply discount rules, wire discount reservation consumption to invoice/payment changes, or expose a complete payment and PDF API. Email delivery uses the console backend in containers by default; SMTP can be configured with environment variables.
+Implemented in the current working tree: invoice and line models, quote-keyed discount reservation models/services, the email outbox and Celery tasks, invoice status transitions, catalog models, the pure Decimal pricing engine, and the subscription pricing adapter. H2 adds invoice sequence allocation, customer/discount and product snapshots, uniqueness by `(subscription, period_start)`, immutable payment records, and document-job tracking. The available subscription data currently provides a customer ID; the customer API/model must supply full name and address values before those can be copied into the snapshot. Discount application is not yet connected to invoice creation: the approved Hour 1 contract uses quote-keyed reservations, while Aby's newer catalog contract specifies invoice-keyed `DiscountRedemption` records, so those lifecycle interfaces need to be reconciled before wiring discount reservation into the invoice transaction.
 
 ## 8. Hour 1 completion checklist
 
-To close H1, record each remaining decision in this document or in the team's agreed design record:
+H1 decisions are recorded:
 
 - [x] Rijin confirms the invoice signature, period semantics, idempotency, and eligibility rules.
 - [x] Aby confirms the discount signatures, reservation identity, consume point, and expiry behavior.
-- [ ] Everyone confirms email signature, outbox/dedupe behavior, and template naming.
-- [ ] Everyone confirms the four invoice status values and transition table.
-- [ ] Update the status at the top of this document to `Approved` and add the date and approvers.
+- [x] Everyone confirms email signature, outbox/dedupe behavior, and template naming.
+- [x] Everyone confirms the four invoice status values and transition table.
+- [x] Update the status at the top of this document to `Approved` and add the date and approvers.
 
-Remaining implementation can proceed in this order: implement Aby's catalog pricing provider; wire invoice confirmation/payment events to discount consumption and email queuing; then add integration tests for retries, concurrent discount claims, and invalid transitions.
+Remaining implementation: reconcile the discount lifecycle key and API; then connect invoice confirmation/payment/cancellation to discount consume/release and email queuing. The pricing provider and invoice snapshot integration are implemented in the working tree.

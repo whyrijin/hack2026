@@ -8,6 +8,8 @@ import type {
   PaginatedCustomers,
 } from '../types/customer.ts'
 
+const CUSTOMERS_ENDPOINT = `${AUTH_CONFIG.apiPrefix}/customers/`
+
 // Initial seed data for fallback when Django backend endpoints are offline/not ready
 const INITIAL_MOCK_CUSTOMERS: Customer[] = [
   {
@@ -273,7 +275,7 @@ export async function getCustomersApi(
   try {
     // Attempt actual Django endpoint
     const response = await apiClient.get<PaginatedCustomers | Customer[]>(
-      AUTH_CONFIG.endpoints.customers,
+      CUSTOMERS_ENDPOINT,
       {
         params: { search, status, sort_by: sortBy, sort_order: sortOrder, page, limit },
       },
@@ -346,7 +348,7 @@ export async function getCustomersApi(
  */
 export async function getCustomerByIdApi(id: string): Promise<Customer> {
   try {
-    const response = await apiClient.get<Customer>(`${AUTH_CONFIG.endpoints.customers}/${id}`)
+    const response = await apiClient.get<Customer>(`${CUSTOMERS_ENDPOINT}${id}/`)
     return response.data
   } catch {
     const found = mockStore.find((c) => c.id === id)
@@ -362,7 +364,7 @@ export async function getCustomerByIdApi(id: string): Promise<Customer> {
  */
 export async function createCustomerApi(payload: CreateCustomerPayload): Promise<Customer> {
   try {
-    const response = await apiClient.post<Customer>(AUTH_CONFIG.endpoints.customers, payload)
+    const response = await apiClient.post<Customer>(CUSTOMERS_ENDPOINT, payload)
     return response.data
   } catch {
     const newCustomer: Customer = {
@@ -400,7 +402,7 @@ export async function updateCustomerApi(
 ): Promise<Customer> {
   try {
     const response = await apiClient.patch<Customer>(
-      `${AUTH_CONFIG.endpoints.customers}/${id}`,
+      `${CUSTOMERS_ENDPOINT}${id}/`,
       payload,
     )
     return response.data

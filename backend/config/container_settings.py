@@ -63,8 +63,5 @@ EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'false').lower() == 'true'
 EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '30'))
 BILLING_PERIOD_PRICING_PROVIDER = os.environ.get(
     'BILLING_PERIOD_PRICING_PROVIDER',
-    'billing_jobs.pricing.price_subscription_period',
+    'products.services.billing_adapter.price_subscription_period',
 )
-SUBSCRIPTION_PRICING_PROVIDER = os.environ.get('SUBSCRIPTION_PRICING_PROVIDER', '')
-if not SUBSCRIPTION_PRICING_PROVIDER:
-    SUBSCRIPTION_PRICING_PROVIDER = 'products.services.calculate_price'
