@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import { Eye, EyeOff, Lock, Mail, User, Loader2, AlertCircle, CheckCircle2, Check, X } from 'lucide-react'
+import { useAuth } from '../context/useAuth.ts'
+import { formatApiError } from '../api/auth.ts'
 
 interface SignupFormProps {
   onNavigateToLogin: () => void
@@ -14,6 +16,8 @@ interface ValidationErrors {
 }
 
 export const SignupForm: React.FC<SignupFormProps> = ({ onNavigateToLogin }) => {
+  const { register } = useAuth()
+
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -103,7 +107,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onNavigateToLogin }) => 
     setErrors((prev) => ({ ...prev, [field]: err }))
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     const nameErr = validateFullName(fullName)
@@ -132,11 +136,36 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onNavigateToLogin }) => 
     setIsLoading(true)
     setErrors({})
 
-    // Simulated UI-level submission with feedback
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await register({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+      })
       setSignupSuccess(true)
-    }, 1200)
+    } catch (err: unknown) {
+      const formatted = formatApiError(err)
+      const newErrors: ValidationErrors = {
+        general: formatted.message,
+      }
+
+      if (formatted.fieldErrors) {
+        if (formatted.fieldErrors.full_name || formatted.fieldErrors.name) {
+          newErrors.fullName = (formatted.fieldErrors.full_name || formatted.fieldErrors.name)?.[0]
+        }
+        if (formatted.fieldErrors.email) {
+          newErrors.email = formatted.fieldErrors.email[0]
+        }
+        if (formatted.fieldErrors.password) {
+          newErrors.password = formatted.fieldErrors.password[0]
+        }
+      }
+
+      setErrors(newErrors)
+      setSignupSuccess(false)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -161,16 +190,15 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onNavigateToLogin }) => 
           >
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <div className="flex-1 text-sm">
-              <p className="font-semibold text-emerald-900">Registration Validation Passed</p>
+              <p className="font-semibold text-emerald-900">Account Created Successfully</p>
               <p className="text-emerald-700 mt-0.5 text-xs leading-relaxed">
-                All signup fields and security requirements verified. Ready to integrate with the Django user
-                registration endpoint.
+                Your BrightLoop account has been registered. You can now sign in to your workspace.
               </p>
               <div className="mt-3 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={onNavigateToLogin}
-                  className="text-xs font-semibold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+                  className="text-xs font-semibold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
                   Proceed to Login
                 </button>

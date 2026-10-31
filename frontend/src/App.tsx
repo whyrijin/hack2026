@@ -3,9 +3,15 @@ import { BrandLogo } from './components/BrandLogo.tsx'
 import { SubscriptionIllustration } from './components/SubscriptionIllustration.tsx'
 import { LoginForm } from './components/LoginForm.tsx'
 import { SignupForm } from './components/SignupForm.tsx'
+import { WorkspaceDashboard } from './components/WorkspaceDashboard.tsx'
+import { ProtectedRoute } from './components/ProtectedRoute.tsx'
+import { AuthProvider } from './context/AuthContext.tsx'
+import { useAuth } from './context/useAuth.ts'
 import { CheckCircle2, ShieldCheck, Zap } from 'lucide-react'
 
-export const App: React.FC = () => {
+const MainScreen: React.FC = () => {
+  const { isAuthenticated, isLoading } = useAuth()
+
   // Support state-based switching with hash/path detection fallback
   const [currentScreen, setCurrentScreen] = useState<'login' | 'signup'>(() => {
     if (typeof window !== 'undefined') {
@@ -20,12 +26,23 @@ export const App: React.FC = () => {
 
   // Sync hash when screen changes so users can bookmark or reload
   useEffect(() => {
-    if (currentScreen === 'signup') {
+    if (isAuthenticated) {
+      window.history.replaceState(null, '', '#workspace')
+    } else if (currentScreen === 'signup') {
       window.history.replaceState(null, '', '#signup')
     } else {
       window.history.replaceState(null, '', '#login')
     }
-  }, [currentScreen])
+  }, [currentScreen, isAuthenticated])
+
+  // If user is authenticated, render the protected workspace dashboard
+  if (isAuthenticated) {
+    return (
+      <ProtectedRoute>
+        <WorkspaceDashboard />
+      </ProtectedRoute>
+    )
+  }
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F7F9FC] overflow-x-hidden">
@@ -123,13 +140,26 @@ export const App: React.FC = () => {
         </div>
 
         {/* Conditional rendering between Login and Signup */}
-        {currentScreen === 'signup' ? (
+        {isLoading ? (
+          <div className="w-full max-w-[440px] mx-auto bg-white rounded-2xl border border-[#E5E7EB] p-8 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
+            <span className="w-4 h-4 border-2 border-[#4965F5] border-t-transparent rounded-full animate-spin" />
+            <span>Verifying session...</span>
+          </div>
+        ) : currentScreen === 'signup' ? (
           <SignupForm onNavigateToLogin={() => setCurrentScreen('login')} />
         ) : (
           <LoginForm onNavigateToSignup={() => setCurrentScreen('signup')} />
         )}
       </main>
     </div>
+  )
+}
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <MainScreen />
+    </AuthProvider>
   )
 }
 
