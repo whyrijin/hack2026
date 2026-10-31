@@ -10,21 +10,22 @@ class ProductVariantInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ['name', 'type', 'sales_price', 'is_active']
-    list_filter = ['is_active', 'type']
-    search_fields = ['name']
-    inlines = [ProductVariantInline]
+    list_display = ("name", "type", "sales_price", "is_active", "updated_at")
+    list_filter = ("type", "is_active", "taxes")
+    search_fields = ("name", "notes")
+    filter_horizontal = ("taxes",)
+    inlines = (ProductVariantInline,)
 
 
 @admin.register(ProductVariant)
 class ProductVariantAdmin(admin.ModelAdmin):
-    list_display = ['product', 'attribute_label', 'option_value', 'price_adjustment', 'is_active']
-    list_filter = ['is_active', 'attribute_label']
-    search_fields = ['product__name', 'option_value']
+    list_display = ("product", "attribute_label", "option_value", "price_adjustment", "is_active")
+    list_filter = ("is_active", "product")
+    search_fields = ("product__name", "attribute_label", "option_value")
 
 
 @admin.register(TaxRule)
 class TaxRuleAdmin(admin.ModelAdmin):
-    list_display = ['name', 'percentage_rate', 'is_active']
-    list_filter = ['is_active']
-    search_fields = ['name']
+    list_display = ("name", "percentage_rate", "is_active")
+    list_filter = ("is_active",)
+    search_fields = ("name",)
