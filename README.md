@@ -324,12 +324,20 @@ python manage.py createsuperuser
 
 ## Running the Application
 
-You need two terminals to run the frontend and backend.
+For Vite development, run the backend services in Docker first. This supplies Django's required secret, PostgreSQL, and Redis; the backend is published only on localhost so Vite can reach it.
 
-### Terminal 1 – Frontend
+### Terminal 1 – Backend services
 
 ```bash
-cd hack2026/frontend
+docker compose up -d --build backend worker beat
+```
+
+Compose also starts PostgreSQL, Redis, and migrations as dependencies.
+
+### Terminal 2 – Frontend development server
+
+```bash
+cd frontend
 
 npm run dev
 ```
@@ -340,21 +348,9 @@ Frontend URL:
 http://localhost:5173
 ```
 
-### Terminal 2 – Backend
+Vite sends `/api`, `/admin`, and `/static` requests to the Docker backend at `127.0.0.1:8000`. The full production-built frontend remains available at `http://localhost:8080` when you run `docker compose up --build`.
 
-```bash
-cd hack2026/backend
-
-source venv/bin/activate
-
-python manage.py runserver
-```
-
-Backend URL:
-
-```text
-http://127.0.0.1:8000
-```
+Stop the backend services with `docker compose down` when finished.
 
 ---
 

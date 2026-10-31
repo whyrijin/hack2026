@@ -66,6 +66,10 @@ services:
 
   backend:
     <<: *backend
+    # Host-only port for the local Vite development server; production traffic
+    # still enters through the frontend reverse proxy on port 8080.
+    ports:
+      - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
