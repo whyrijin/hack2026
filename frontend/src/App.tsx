@@ -88,8 +88,7 @@ const MainScreen: React.FC = () => {
             </h2>
 
             <p className="text-sm sm:text-base text-slate-300 max-w-lg mx-auto lg:mx-0 leading-relaxed">
-              One unified platform to manage customers, recurring billing, automated renewals, and continuous
-              business performance.
+              One workspace for customer records, subscription lifecycle actions, and recurring billing schedules.
             </p>
           </div>
 
@@ -102,11 +101,11 @@ const MainScreen: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 text-xs text-slate-300 md:hidden">
             <div className="flex items-center gap-2 bg-white/5 p-2.5 rounded-lg border border-white/10">
               <CheckCircle2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
-              <span>Automated recurring billing</span>
+              <span>Scheduled billing scans</span>
             </div>
             <div className="flex items-center gap-2 bg-white/5 p-2.5 rounded-lg border border-white/10">
               <CheckCircle2 className="w-4 h-4 text-[#38BDF8] shrink-0" />
-              <span>Smart churn prevention</span>
+              <span>Customer lifecycle controls</span>
             </div>
           </div>
         </div>
@@ -115,14 +114,7 @@ const MainScreen: React.FC = () => {
         <footer className="relative z-10 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-400">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-[#38BDF8]" />
-            <span>Bank-grade security &amp; PCI-DSS Level 1 compliant</span>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] text-slate-400">
-            <span>SOC2 Type II</span>
-            <span>•</span>
-            <span>256-bit AES</span>
-            <span>•</span>
-            <span>99.99% SLA</span>
+            <span>Secure account access for subscription management</span>
           </div>
         </footer>
       </section>

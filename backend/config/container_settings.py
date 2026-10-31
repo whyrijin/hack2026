@@ -66,3 +66,5 @@ BILLING_PERIOD_PRICING_PROVIDER = os.environ.get(
     'billing_jobs.pricing.price_subscription_period',
 )
 SUBSCRIPTION_PRICING_PROVIDER = os.environ.get('SUBSCRIPTION_PRICING_PROVIDER', '')
+if not SUBSCRIPTION_PRICING_PROVIDER:
+    SUBSCRIPTION_PRICING_PROVIDER = 'products.services.calculate_price'

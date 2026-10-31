@@ -47,6 +47,7 @@ def _with_refresh_cookie(response, token, remember_me=False):
 
 def _issue_tokens(user, remember_me=False):
     refresh = RefreshToken.for_user(user)
+    refresh['remember_me'] = bool(remember_me)
     response = Response({'access_token': str(refresh.access_token), 'user': _user_payload(user)})
     return _with_refresh_cookie(response, refresh, remember_me)
 
@@ -114,7 +115,12 @@ class RefreshView(APIView):
             user = get_user_model().objects.get(pk=refresh['user_id'], is_active=True)
         except (TokenError, KeyError, get_user_model().DoesNotExist):
             return Response({'detail': 'Refresh session has expired. Sign in again.'}, status=status.HTTP_401_UNAUTHORIZED)
-        return Response({'access_token': str(refresh.access_token), 'user': _user_payload(user)})
+        remember_me = bool(refresh.get('remember_me', False))
+        refresh.blacklist()
+        replacement = RefreshToken.for_user(user)
+        replacement['remember_me'] = remember_me
+        response = Response({'access_token': str(replacement.access_token), 'user': _user_payload(user)})
+        return _with_refresh_cookie(response, replacement, remember_me)
 
 
 class LogoutView(APIView):

@@ -1,5 +1,7 @@
 """Validated invoice status transitions."""
 
+from datetime import timedelta
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -39,6 +41,8 @@ def transition_invoice_status(invoice_id, new_status):
     if new_status == InvoiceStatus.CONFIRMED:
         invoice.confirmed_at = now
         fields.append("confirmed_at")
+        invoice.due_date = timezone.localdate(now) + timedelta(days=invoice.subscription.payment_term_days)
+        fields.append("due_date")
     elif new_status == InvoiceStatus.PAID:
         invoice.paid_at = now
         fields.append("paid_at")

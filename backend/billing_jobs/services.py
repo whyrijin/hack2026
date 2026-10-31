@@ -14,7 +14,9 @@ CATCH_UP_BATCH_SIZE = 5
 
 
 def _status_on(subscription: Subscription, day: date) -> str:
-    events = subscription.events.filter(effective_on__lte=day).order_by('effective_on', 'created_at', 'id')
+    events = list(subscription.events.filter(effective_on__lte=day).order_by('effective_on', 'created_at', 'id'))
+    if not events:
+        return subscription.status
     status = Subscription.Status.DRAFT
     for event in events:
         status = event.to_status

@@ -36,18 +36,18 @@ def create_invoice_for_period(
     ...
 ```
 
-Location: `backend/billing/services/invoices.py`. It calls the dotted callable configured by `BILLING_PERIOD_PRICING_PROVIDER`; that adapter must call Aby's authoritative `calculate_price` service and return its documented pricing result. This project currently has no catalog models or pricing engine, so configure the provider when that integration lands.
+Location: `backend/billing/services/invoices.py`. It calls the dotted callable configured by `BILLING_PERIOD_PRICING_PROVIDER`; the default adapter carries the accepted `Subscription` price snapshots into invoice lines. Subscription creation and draft edits call `products.services.calculate_price`, which currently calculates plan and product prices with additive taxes from the existing catalog models. Discount application remains unintegrated and needs alignment with the catalog contract before it is considered complete.
 
 Provider shape: `price_subscription_period(subscription, period_start, period_end) -> dict`, matching the output structure in `aby-catalog-pricing-contract.md`. Invoice generation validates that line snapshots reconcile with the pricing totals before creating the invoice.
 
 ### Proposed behavior
 
 1. Treat the period as **start-inclusive, end-exclusive**: `[period_start, period_end)`. Reject `period_end <= period_start`.
-2. Look up the subscription by ID; raise `SubscriptionNotFound` if it does not exist. Reject a subscription that is not eligible for billing using a named `SubscriptionNotBillable` error.
-3. Create one invoice for a subscription and exact period. Enforce a database uniqueness constraint on `(subscription, period_start, period_end)`. Repeating the same call returns the existing invoice, including after a task retry.
+2. Look up the subscription by ID; raise `SubscriptionNotFound` if it does not exist. Resolve eligibility from lifecycle events effective at the period start, so a retry for an earlier active period can still succeed after the subscription has since been paused or closed.
+3. Create one invoice for a subscription cycle. Enforce a database uniqueness constraint on `(subscription, period_start)` so a changed period end cannot create a second invoice for the same cycle. Repeating the same call returns the existing invoice, including after a task retry; a conflicting period end is rejected.
 4. Snapshot every invoice line's description, quantity, currency, unit price, discount, tax, and totals. Later catalog edits must not change an existing invoice.
 5. Create the invoice in `Draft`. Invoice confirmation and payment are separate state transitions and are not side effects of invoice generation.
-6. Build invoice values through the shared authoritative pricing service agreed with Aby; do not reproduce price or tax math inside billing.
+6. Build the accepted subscription price through the shared pricing service, then carry the saved amount and tax snapshots into each invoice. Do not re-read mutable catalog prices for an already accepted subscription.
 7. Do not send email inside this function. The caller queues notifications after commit.
 
 ### Team decision for Rijin
@@ -175,7 +175,7 @@ Database constraints: unique `(subscription, period_start, period_end)`; check `
 | `quantity` | `DecimalField(12, 3)` | Quantity snapshot. |
 | `unit_price`, `gross_amount`, `discount_amount`, `taxable_amount`, `tax_amount`, `total_amount` | `DecimalField(12, 2)` | Immutable pricing snapshots from the authoritative pricing service. |
 | `tax_rate` | Nullable `DecimalField(7, 4)` | Applied rate snapshot for audit/display. |
-| `source_type`, `source_id` | Nullable `CharField(32)` and UUID | Optional pointer to the plan/product without making historical lines depend on a live catalog row. |
+| `source_type`, `source_id` | `CharField(32)` and nullable `CharField(64)` | Optional pointer to the plan/product without making historical lines depend on a live catalog row. Supports integer catalog IDs and UUID-backed sources. |
 
 Database constraints: unique `(invoice, line_number)`; `quantity > 0`; monetary line values are nonnegative. Invoice lines become immutable after the invoice leaves `Draft`; enforce that rule through the billing service/model validation.
 
@@ -212,7 +212,7 @@ Create the outbox row in the business transaction and publish its task on commit
 
 ## 7. Implementation status and remaining work
 
-Implemented in this branch: invoice and line models, discount rule and reservation models/services, the email outbox and Celery tasks, invoice status transitions, and initial migrations. Invoice creation is wired to a configurable `BILLING_PERIOD_PRICING_PROVIDER`; the catalog and authoritative pricing service are not present yet, so invoice creation will raise `InvoicePricingNotConfigured` until that adapter is implemented and configured. Email delivery uses the console backend in containers by default; SMTP can be configured with environment variables.
+Implemented in the current integration: invoice and line models, discount rule and reservation models/services, the email outbox and Celery tasks, invoice status transitions, migrations, and the default plan/product/tax pricing provider. Invoice generation now validates historical eligibility, uses accepted subscription snapshots, and is unique per subscription cycle start. The provider does not yet apply discount rules, wire discount reservation consumption to invoice/payment changes, or expose a complete payment and PDF API. Email delivery uses the console backend in containers by default; SMTP can be configured with environment variables.
 
 ## 8. Hour 1 completion checklist
 

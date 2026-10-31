@@ -234,7 +234,9 @@ Docker Desktop (or Docker Engine with the Compose plugin) is required. From the 
    docker compose exec backend python manage.py scan_due_subscriptions
    ```
 
-   The scan accepts an optional `--date YYYY-MM-DD` for a deterministic demonstration. `billing_jobs.pricing.price_subscription_period` adapts the shared pricing DTO to the invoice service, while `SUBSCRIPTION_PRICING_PROVIDER` points to the team's `calculate_price` implementation. The catalog contract is in `docs/contracts/aby-catalog-pricing-contract.md`; price-dependent quotation and invoice creation stay unavailable until that pricing implementation is integrated.
+   The scan accepts an optional `--date YYYY-MM-DD` for a deterministic demonstration. The staff subscription screen reads customers, plans, products, variants, and quote templates from the authenticated API; it no longer needs manually typed database IDs. The server calculates plan and product totals from stored catalog prices and tax rules through `products.services.calculate_price`. Recurring invoices carry forward the saved subscription price snapshots so later catalog edits do not silently change an accepted quote. This baseline does not yet apply discount rules; integrate and review that portion against the catalog contract in `docs/contracts/aby-catalog-pricing-contract.md` before treating discounts as production-ready.
+
+   The API is rooted at `/api/v1`: authentication (`/auth/...`, `/me/`), catalog reads (`/customers/`, `/plans/`, `/products/`, `/quote-templates/`, `/payment-terms/`), staff subscription management (`/subscriptions/`), and customer-owned subscription access (`/portal/subscriptions/`). The browser's customer tab uses the customer-owned endpoint; the backend scopes those rows by the signed-in user's customer profile.
 
    Stop with `docker compose down`. PostgreSQL and Beat data remain in named volumes. **`docker compose down -v` deletes those volumes and their data.** Changing PostgreSQL credentials in `.env` after the database has been initialized does not change the existing database user; manage that change in PostgreSQL as well.
 
