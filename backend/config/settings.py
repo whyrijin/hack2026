@@ -31,15 +31,25 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    # Django built-in apps
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # Project apps
+    'accounts',
+    'customers',
+    'products',
+    'plans',
     'subscriptions',
     'billing',
     'discounts',
+    'quotations',
+    'payments',
+    'analytics',
     'notifications',
 ]
 
