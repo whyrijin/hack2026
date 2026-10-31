@@ -1,0 +1,1 @@
+Your BrightLoop invoice {{ invoice_number }}

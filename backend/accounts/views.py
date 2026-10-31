@@ -24,6 +24,21 @@ from accounts.authentication import password_stamp
 def _user_payload(user):
     full_name = user.get_full_name().strip()
     role = 'admin' if user.is_superuser else 'staff' if user.is_staff else 'customer'
+    try:
+        customer = user.customer_profile
+    except (AttributeError, Customer.DoesNotExist):
+        customer = None
+    customer_payload = None
+    if customer is not None:
+        customer_payload = {
+            'id': customer.pk,
+            'name': customer.name,
+            'email': customer.email,
+            'company': customer.company,
+            'phone': customer.phone,
+            'billing_address': CustomerSerializer(customer).data.get('billing_address'),
+            'created_at': customer.created_at.isoformat(),
+        }
     return {
         'id': user.pk,
         'email': user.email,
@@ -33,7 +48,7 @@ def _user_payload(user):
         'is_staff': user.is_staff,
         'is_superuser': user.is_superuser,
         'is_active': user.is_active,
-        'customer': CustomerSerializer(user.customer_profile).data if hasattr(user, 'customer_profile') else None,
+        'customer': customer_payload,
     }
 
 

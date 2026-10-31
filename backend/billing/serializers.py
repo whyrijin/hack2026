@@ -39,6 +39,7 @@ def serialize_invoice(invoice, *, portal=False):
         "confirmed_at": invoice.confirmed_at.isoformat() if invoice.confirmed_at else None,
         "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
         "cancelled_at": invoice.cancelled_at.isoformat() if invoice.cancelled_at else None,
+        "cancellation_reason": invoice.cancellation_reason,
         "created_at": invoice.created_at.isoformat(),
         "is_overdue": bool(invoice.status == InvoiceStatus.CONFIRMED and balance > 0 and invoice.due_date and invoice.due_date < timezone.localdate()),
         "allowed_actions": actions,

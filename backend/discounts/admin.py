@@ -9,6 +9,7 @@ class DiscountRuleAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "discount_type", "scope")
     search_fields = ("name", "code")
     readonly_fields = ("times_used", "times_reserved", "created_at", "updated_at")
+    filter_horizontal = ("products",)
 
 
 @admin.register(DiscountReservation)

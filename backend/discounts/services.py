@@ -1,13 +1,18 @@
 """Transactional operations for capped discount reservations."""
 
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, NAMESPACE_URL, uuid5
 
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
 from .models import DiscountReservation, DiscountRule
+
+
+def invoice_cycle_quote_id(subscription_id, period_start) -> UUID:
+    """Stable reservation key for one subscription billing period."""
+    return uuid5(NAMESPACE_URL, f"subscription:{subscription_id}:period:{period_start.isoformat()}")
 
 
 class DiscountError(Exception):

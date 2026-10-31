@@ -3,7 +3,7 @@ from django.urls import path
 from .models import InvoiceStatus
 from .views import (
     InvoiceDetailView, InvoiceListView, InvoicePaymentView, InvoicePDFView,
-    InvoiceSendView, InvoiceTransitionView, PortalInvoicePDFView,
+    InvoiceSendView, InvoiceTransitionView, PortalInvoicePDFView, DocumentJobView,
 )
 
 
@@ -15,6 +15,7 @@ urlpatterns = [
     path("invoices/<uuid:pk>/payments/", InvoicePaymentView.as_view(), name="invoice-payment"),
     path("invoices/<uuid:pk>/pdf/", InvoicePDFView.as_view(), name="invoice-pdf"),
     path("invoices/<uuid:pk>/send/", InvoiceSendView.as_view(), name="invoice-send"),
+    path("jobs/<uuid:pk>/", DocumentJobView.as_view(), name="job-detail"),
     path("portal/invoices/", InvoiceListView.as_view(portal=True), name="portal-invoice-list"),
     path("portal/invoices/<uuid:pk>/", InvoiceDetailView.as_view(portal=True), name="portal-invoice-detail"),
     path("portal/invoices/<uuid:pk>/pdf/", PortalInvoicePDFView.as_view(), name="portal-invoice-pdf"),

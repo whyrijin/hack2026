@@ -1,5 +1,7 @@
 """Staff invoice operations and customer-scoped read-only invoice access."""
 
+from decimal import Decimal
+
 from django.core.exceptions import ObjectDoesNotExist, ValidationError as DjangoValidationError
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -102,14 +104,14 @@ class InvoiceTransitionView(APIView):
     def post(self, request, pk):
         invoice = get_invoice(request, pk)
         try:
-            transition_invoice_status(invoice.pk, self.target_status)
+            transition_invoice_status(invoice.pk, self.target_status, reason=request.data.get("reason", ""))
         except InvalidInvoiceTransition as exc:
             raise ValidationError({"status": str(exc)})
         return Response(serialize_invoice(get_invoice(request, pk)))
 
 
 class PaymentInput(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
     method = serializers.CharField(max_length=40)
     payment_date = serializers.DateField()
     reference = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
@@ -122,7 +124,10 @@ class InvoicePaymentView(APIView):
 
     def post(self, request, pk):
         invoice = get_invoice(request, pk)
-        data = PaymentInput(data=request.data)
+        payload = request.data.copy()
+        if not payload.get("idempotency_key"):
+            payload["idempotency_key"] = request.headers.get("Idempotency-Key", "")
+        data = PaymentInput(data=payload)
         data.is_valid(raise_exception=True)
         try:
             result = record_payment(invoice.pk, **data.validated_data)
@@ -173,6 +178,20 @@ class InvoicePDFView(APIView):
 class PortalInvoicePDFView(InvoicePDFView):
     portal = True
     http_method_names = ["get", "head", "options"]
+
+
+class DocumentJobView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            job = DocumentJob.objects.select_related("invoice").get(pk=pk)
+        except DocumentJob.DoesNotExist:
+            raise NotFound("Job not found.")
+        portal = not (request.user.is_staff or request.user.is_superuser)
+        get_invoice(request, job.invoice_id, portal=portal)
+        result = serialize_job(job, request, portal=portal)
+        return Response(result)
 
 
 class InvoiceSendView(APIView):

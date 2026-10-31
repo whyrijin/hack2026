@@ -17,8 +17,9 @@ export interface Invoice {
   period_start: string
   period_end: string
   due_date: string | null
+  cancellation_reason?: string
   allowed_actions: string[]
-  lines: Array<{ id: string; description: string; quantity: string | number; unit_price: string; net_amount: string; total?: string; line_total?: string }>
+  lines: Array<{ id: string; description: string; quantity: string | number; unit_price: string; total_amount: string }>
   payments: Array<{ id: string; amount: string; method: string; payment_date: string; reference: string }>
 }
 export interface Page<T> { count: number; next: string | null; previous: string | null; results: T[] }

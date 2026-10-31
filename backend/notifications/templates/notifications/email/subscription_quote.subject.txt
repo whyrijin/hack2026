@@ -1,0 +1,1 @@
+Your BrightLoop subscription quotation {{ subscription_number }}
